@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+from flows import GP_Layer, AR_Layer, VAR_Layer
 
 def construct_flow(flow_dict, D_Z, T):
     latent_layers = construct_latent_dynamics(flow_dict, D_Z, T);
