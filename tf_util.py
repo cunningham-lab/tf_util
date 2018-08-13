@@ -161,3 +161,21 @@ def connect_flow(Z, layers, theta, ts=None):
         Z_by_layer.append(Z);
     print(Z.shape);
     return Z, sum_log_det_jacobians, Z_by_layer;
+
+def count_layer_params(layer):
+    num_params = 0;
+    name, param_names, dims, _, _ = layer.get_layer_info();
+    nparams = len(dims);
+    for j in range(nparams):
+        num_params += np.prod(dims[j]);
+    return num_params;
+
+
+def count_params(all_params):
+    nparams = len(all_params);
+    nparam_vals = 0;
+    for i in range(nparams):
+        param = all_params[i];
+        param_shape = tuple(param.get_shape().as_list());
+        nparam_vals += np.prod(param_shape);
+    return nparam_vals;
