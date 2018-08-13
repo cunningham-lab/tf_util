@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 from flows import GP_Layer, AR_Layer, VAR_Layer
 
+#edit 1
+
 def construct_flow(flow_dict, D_Z, T):
     latent_layers = construct_latent_dynamics(flow_dict, D_Z, T);
     time_invariant_layers = construct_time_invariant_flow(flow_dict, D_Z, T);
