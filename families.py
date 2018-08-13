@@ -1,8 +1,9 @@
 import tensorflow as tf
 import numpy as np
-from efn_util import count_layer_params, truncated_multivariate_normal_rvs, get_GP_Sigma, \
-                     drawPoissonCounts
-from flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
+from tf_util.stat_util import truncated_multivariate_normal_rvs, get_GP_Sigma, \
+                              drawPoissonCounts
+from tf_util.tf_util import count_layer_params
+from tf_util.flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
 import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
