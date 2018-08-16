@@ -217,6 +217,23 @@ class TanhLayer(Layer):
         sum_log_det_jacobians += log_det_jacobian;
         return z_out, sum_log_det_jacobians;
 
+class IntervalFlowLayer(Layer):
+    def __init__(self, name='IntervalFlowLayer', a=0.0, b=1.0):
+        self.name = name;
+        self.param_names = [];
+        self.param_network = False;
+        self.a = a;
+        self.b = b;
+
+    def forward_and_jacobian(self, z, sum_log_det_jacobians):
+        m = (self.b - self.a) / 2.0;
+        c = (self.a + self.b) / 2.0;
+        tanh_z = tf.tanh(z);
+        z_out = m*tanh_z + c;
+        log_det_jacobian = tf.reduce_sum(np.log(m) + tf.log(1.0 - (tanh_z**2)), [2,3]);
+        sum_log_det_jacobians += log_det_jacobian;
+        return z_out, sum_log_det_jacobians;
+
 class ExpLayer(Layer):
     def __init__(self, name='ExpLayer'):
         self.name = name;
@@ -346,7 +363,8 @@ class AffineFlowLayer(Layer):
             b = tf.expand_dims(tf.expand_dims(self.b, 0), 0);
             z = tf.tensordot(A, z, [[1], [2]]);
             z = tf.transpose(z, [1, 2, 0, 3]) + b;
-            log_det_jacobian = tf.multiply(tf.log(tf.abs(tf.matrix_determinant(A))), tf.ones((K,M,), dtype=tf.float64)) + 0.0*tf.reduce_sum(b);
+            #log_det_jacobian = tf.multiply(tf.log(tf.abs(tf.matrix_determinant(A))), tf.ones((K,M,), dtype=tf.float64)) + 0.0*tf.reduce_sum(b);
+            log_det_jacobian = tf.multiply(tf.log(tf.abs(tf.matrix_determinant(A))), tf.ones((K,M,), dtype=tf.float64));
         else:
             z_KD_MTvec = tf.reshape(tf.transpose(z, [0,2,1,3]), [K,D,M*T]);
             Az_KD_MTvec = tf.matmul(self.A, z_KD_MTvec);
