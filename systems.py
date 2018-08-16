@@ -1,13 +1,15 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.tf_util import count_layer_params
-from tf_util.flows import SoftPlusLayer
+from tf_util.flows import SoftPlusLayer, IntervalFlowLayer
 import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
 from itertools import compress
 
 def system_from_str(system_str):
+	if (system_str in ['null', 'null_on_interval']):
+		return null_on_interval;
 	if (system_str in ['linear_1D']):
 		return linear_1D;
 	if (system_str in ['damped_harmonic_oscillator', 'dho']):
@@ -62,14 +64,69 @@ class system:
 
 	def center_suff_stats_by_mu(self, T_x, mu):
 		"""Center sufficient statistics by the mean parameters mu."""
-		return T_x - tf.expand_dims(tf.expand_dims(mu, 0), 1);
+		return T_x - np.expand_dims(np.expand_dims(mu, 0), 1);
+
+
+class null_on_interval(system):
+	"""Null system.  One parameter no constraints.  
+	   Solution should be uniform on interval.
+
+	Attributes:
+		D (int): parametric dimensionality
+		T (int): number of time points
+		dt (float): time resolution of simulation
+		behavior_str (str): determines sufficient statistics that characterize system
+	"""
+
+	def __init__(self, a=0, b=1):
+		self.name = 'null_on_interval';
+		self.D = 1;
+		self.T = 1;
+		self.dt = .001;
+		self.num_suff_stats = 0;
+		self.a = a;
+		self.b = b;
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		phi_shape = tf.shape(phi);
+		K = phi_shape[0];
+		M = phi_shape[1];
+		return tf.zeros((K,M,0), dtype=tf.float64);
+
+	def compute_mu(self, behavior):
+		return np.array([], dtype=np.float64);
+
+
+	def map_to_parameter_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to parameter support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+		"""
+		support_layer = IntervalFlowLayer('IntervalFlowLayer', self.a, self.b);
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params
 
 
 class linear_1D(system):
 	"""Linear one-dimensional systems.
 
 	Attributes:
-		D (int): dimensionality of the exponential family
+		D (int): parametric dimensionality
 		T (int): number of time points
 		dt (float): time resolution of simulation
 		behavior_str (str): determines sufficient statistics that characterize system
@@ -163,7 +220,7 @@ class damped_harmonic_oscillator(system):
 	"""Linear one-dimensional systems.
 
 	Attributes:
-		D (int): dimensionality of the exponential family
+		D (int): parametric dimensionality
 		T (int): number of time points
 		dt (float): time resolution of simulation
 		behavior_str (str): determines sufficient statistics that characterize system
