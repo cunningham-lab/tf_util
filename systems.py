@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.tf_util import count_layer_params
+from tf_util.flows import SoftPlusLayer
 import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
@@ -9,6 +10,8 @@ from itertools import compress
 def system_from_str(system_str):
 	if (system_str in ['linear_1D']):
 		return linear_1D;
+	if (system_str in ['damped_harmonic_oscillator', 'dho']):
+		return damped_harmonic_oscillator;
 
 
 class system:
@@ -152,4 +155,125 @@ class linear_1D(system):
 
 		mu = np.concatenate((mu_mu, mu_Sigma), 0);
 		return mu;
+
+
+
+
+class damped_harmonic_oscillator(system):
+	"""Linear one-dimensional systems.
+
+	Attributes:
+		D (int): dimensionality of the exponential family
+		T (int): number of time points
+		dt (float): time resolution of simulation
+		behavior_str (str): determines sufficient statistics that characterize system
+	"""
+
+	def __init__(self, behavior_str, T, dt, init_conds):
+		super().__init__(behavior_str, T, dt);
+		self.name = 'damped_harmonic_oscillator';
+		self.D = 3;
+		self.init_conds = init_conds;
+		self.num_suff_stats = 2*T;
+
+	def simulate(self, phi):
+		"""Compute sufficient statistics that require simulation.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Simulation-derived sufficient statistics of samples.
+		"""
+		phi_shape = tf.shape(phi);
+		K = phi_shape[0];
+		M = phi_shape[1];
+
+		print('phi', phi.shape);
+		k = phi[:,:,0,:];
+		c = phi[:,:,1,:];
+		m = phi[:,:,2,:];
+
+		w_0 = tf.sqrt(tf.divide(k,m));
+		zeta = tf.divide(c, 2.0*tf.sqrt(tf.multiply(m,k)));
+
+		X = [];
+		Y = [];
+		X_t = self.init_conds[0]*tf.ones((K,M,1), dtype=tf.float64);
+		Y_t = self.init_conds[1]*tf.ones((K,M,1), dtype=tf.float64);
+		X.append(tf.expand_dims(X_t, 3));
+		Y.append(tf.expand_dims(Y_t, 3));
+		for i in range(1,self.T):
+			X_dot = Y_t;
+			Y_dot = -2.0*tf.multiply(tf.multiply(w_0, zeta), Y_t) - tf.multiply(tf.square(w_0), X_t);
+			X_next = X_t + self.dt*X_dot;
+			Y_next = Y_t + self.dt*Y_dot;
+			X.append(tf.expand_dims(X_next, 3));
+			Y.append(tf.expand_dims(Y_next, 3));
+			X_t = X_next;
+			Y_t = Y_next;
+
+
+		X = tf.concat(X, axis=3);
+		Y = tf.concat(Y, axis=3);
+		return tf.concat((X,Y), axis=2);
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		if (self.behavior_str == 'trajectory'):
+			T_x = self.simulation_suff_stats(phi);
+		else:
+			raise NotImplementedError;
+		return T_x;
+
+	def simulation_suff_stats(self, phi):
+		"""Compute sufficient statistics that require simulation.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Simulation-derived sufficient statistics of samples.
+		"""
+		if (self.behavior_str == 'trajectory'):
+			XY = self.simulate(phi);
+			X = tf.clip_by_value(XY[:,:,0,:], 1e-3, 1e3);
+			T_x = tf.concat((X, tf.square(X)), 2);
+		return T_x;
+
+	def compute_mu(self, behavior):
+		mu = behavior['mu'];
+		Sigma = behavior['Sigma'];
+		mu_mu = mu;
+		mu_Sigma = Sigma;
+		print(mu_mu.shape, mu_Sigma.shape);
+		mu = np.concatenate((mu_mu, mu_Sigma), 0);
+		return mu;
+
+	def map_to_parameter_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to parameter support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+		"""
+		support_layer = SoftPlusLayer();
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params
+
+
+
+
 
