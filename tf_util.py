@@ -123,13 +123,11 @@ def declare_theta(flow_layers):
                 param_ij = initializers[j];
             else:
                 if (isinstance(initializers[j], tf.Tensor)):
-                    print('yep');
                     print(initializers[j]);
                     param_ij = tf.get_variable(layer_name+'_'+param_names[j], \
                                                dtype=tf.float64, \
                                                initializer=initializers[j]);
                 else:
-                    print('nope');
                     print(initializers[j]);
                     param_ij = tf.get_variable(layer_name+'_'+param_names[j], shape=param_dims[j], \
                                                dtype=tf.float64, \
