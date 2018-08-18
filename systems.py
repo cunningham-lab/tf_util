@@ -10,9 +10,13 @@ from itertools import compress
 def system_from_str(system_str):
 	if (system_str in ['null', 'null_on_interval']):
 		return null_on_interval;
-	if (system_str in ['linear_1D']):
+	elif (system_str in ['one_con', 'one_con_on_interval']):
+		return one_con_on_interval;
+	elif (system_str in ['two_con', 'two_con_on_interval']):
+		return two_con_on_interval;
+	elif (system_str in ['linear_1D']):
 		return linear_1D;
-	if (system_str in ['damped_harmonic_oscillator', 'dho']):
+	elif (system_str in ['damped_harmonic_oscillator', 'dho']):
 		return damped_harmonic_oscillator;
 
 
@@ -68,19 +72,18 @@ class system:
 
 
 class null_on_interval(system):
-	"""Null system.  One parameter no constraints.  
+	"""Null system.  D parameters no constraints.  
 	   Solution should be uniform on interval.
 
 	Attributes:
 		D (int): parametric dimensionality
-		T (int): number of time points
-		dt (float): time resolution of simulation
-		behavior_str (str): determines sufficient statistics that characterize system
+		a (float): beginning of interval
+		b (float): end of interval
 	"""
 
-	def __init__(self, a=0, b=1):
+	def __init__(self, D, a=0, b=1):
 		self.name = 'null_on_interval';
-		self.D = 1;
+		self.D = D;
 		self.T = 1;
 		self.dt = .001;
 		self.num_suff_stats = 0;
@@ -103,6 +106,116 @@ class null_on_interval(system):
 
 	def compute_mu(self, behavior):
 		return np.array([], dtype=np.float64);
+
+
+	def map_to_parameter_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to parameter support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+		"""
+		support_layer = IntervalFlowLayer('IntervalFlowLayer', self.a, self.b);
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params
+
+class one_con_on_interval(null_on_interval):
+	"""System with one constraint.  D parameters dim1 == dim2.  
+	   Solution should be uniform on the plane.
+
+	Attributes:
+		D (int): parametric dimensionality
+		a (float): beginning of interval
+		b (float): end of interval
+	"""
+
+	def __init__(self, D, a=0, b=1):
+		super().__init__(D, a, b);
+		if ((type(D) is not int) or (D < 2)):
+			print('Error: need at least two dimensions for plane on interval');
+			raise ValueError;
+		self.name = 'one_con_on_interval';
+		self.num_suff_stats = 2;
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		phi_shape = tf.shape(phi);
+		K = phi_shape[0];
+		M = phi_shape[1];
+		diff01 = phi[:,:,0] - phi[:,:,1];
+		T_x = tf.concat((diff01, tf.square(diff01)), axis=2);
+		return T_x;
+
+	def compute_mu(self, behavior):
+		return np.array([0.0, 0.001], dtype=np.float64);
+
+
+	def map_to_parameter_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to parameter support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+		"""
+		support_layer = IntervalFlowLayer('IntervalFlowLayer', self.a, self.b);
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params
+
+
+class two_con_on_interval(null_on_interval):
+	"""System with two constraints.  D parameters dim1 == dim2, dim2 == dim3  
+	   Solution should be uniform on the plane.
+
+	Attributes:
+		D (int): parametric dimensionality
+		a (float): beginning of interval
+		b (float): end of interval
+	"""
+
+	def __init__(self, D, a=0, b=1):
+		super().__init__(D, a, b);
+		if ((type(D) is not int) or (D < 3)):
+			print('Error: need at least three dimensions for plane on interval');
+			raise ValueError;
+		self.name = 'two_con_on_interval';
+		self.num_suff_stats = 4;
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		phi_shape = tf.shape(phi);
+		K = phi_shape[0];
+		M = phi_shape[1];
+		diff01 = phi[:,:,0] - phi[:,:,1];
+		diff12 = phi[:,:,1] - phi[:,:,2];
+		T_x = tf.concat((diff01, diff12, tf.square(diff01), tf.square(diff12)), axis=2);
+		return T_x;
+
+	def compute_mu(self, behavior):
+		return np.array([0.0, 0.0, 0.001, 0.001], dtype=np.float64);
 
 
 	def map_to_parameter_support(self, layers, num_theta_params):
@@ -226,12 +339,13 @@ class damped_harmonic_oscillator(system):
 		behavior_str (str): determines sufficient statistics that characterize system
 	"""
 
-	def __init__(self, behavior_str, T, dt, init_conds):
+	def __init__(self, behavior_str, T, dt, init_conds, bounds):
 		super().__init__(behavior_str, T, dt);
 		self.name = 'damped_harmonic_oscillator';
 		self.D = 3;
 		self.init_conds = init_conds;
 		self.num_suff_stats = 2*T;
+		self.bounds = bounds;
 
 	def simulate(self, phi):
 		"""Compute sufficient statistics that require simulation.
@@ -301,7 +415,7 @@ class damped_harmonic_oscillator(system):
 		"""
 		if (self.behavior_str == 'trajectory'):
 			XY = self.simulate(phi);
-			X = tf.clip_by_value(XY[:,:,0,:], 1e-3, 1e3);
+			X = tf.clip_by_value(XY[:,:,0,:], -1e3, 1e3);
 			T_x = tf.concat((X, tf.square(X)), 2);
 		return T_x;
 
@@ -325,12 +439,86 @@ class damped_harmonic_oscillator(system):
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
 		"""
-		support_layer = SoftPlusLayer();
+		support_layer = IntervalFlowLayer('IntervalFlowLayer', self.bounds[0], self.bounds[1]);
 		num_theta_params += count_layer_params(support_layer);
 		layers.append(support_layer);
 		return layers, num_theta_params
 
 
+
+class linear_2D(system):
+	"""Linear two-dimensional systems.
+
+	Attributes:
+		D (int): parametric dimensionality
+		T (int): number of time points
+		dt (float): time resolution of simulation
+		behavior_str (str): determines sufficient statistics that characterize system
+	"""
+
+	def __init__(self, behavior_str, T, dt, init_conds):
+		super().__init__(behavior_str, T, dt);
+		self.name = 'linear_2D';
+		self.D = 4;
+		self.init_conds = init_conds;
+		self.num_suff_stats = 6;
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		if (self.behavior_str == 'oscillation'):
+			T_x = self.analytic_suff_stats(phi);
+		else:
+			raise NotImplementedError;
+		return T_x;
+
+	def analytic_suff_stats(self, phi):
+		"""Compute closed form sufficient statistics.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Analytic sufficient statistics of samples.
+		"""
+		phi_shape = tf.shape(phi);
+		K = phi_shape[0];
+		M = phi_shape[1];
+
+		tau = 0.100; # 100ms
+		print('phi', phi.shape);
+		w1 = phi[:,:,0,:];
+		w2 = phi[:,:,1,:];
+		w3 = phi[:,:,2,:];
+		w4 = phi[:,:,3,:];
+
+		a1 = (w1-1)/tau;
+		a2 = w2/tau;
+		a3 = w3/tau;
+		a4 = (w4-1)/tau;
+
+		beta = tf.square(a1 + a4) - 4*(a1*a4 + a2*a3);
+
+		if (self.behavior_str == 'oscillation'):
+			lambda_1_real = 0.5*((a1 + a4) + tf.sqrt(tf.relu(beta)));
+			lambda_2_real = 0.5*((a1 + a4) - tf.sqrt(tf.relu(beta)));
+			lambda_1_imag = 0.5*tf.relu(-beta);
+			moments = [lambda_1_real, tf.square(lambda_1_real), \
+			           lambda_2_real, tf.square(lambda_2_real), \
+			           lambda_1_imag, tf.square(lambda_1_imag)];
+			T_x = tf.concat(moments, 2);
+		return T_x;
+
+
+	def compute_mu(self, behavior):
+		mu = behavior['mu'];
+		return mu;
 
 
 
