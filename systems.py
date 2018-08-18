@@ -16,6 +16,8 @@ def system_from_str(system_str):
 		return two_con_on_interval;
 	elif (system_str in ['linear_1D']):
 		return linear_1D;
+	elif (system_str in ['linear_2D']):
+		return linear_2D;
 	elif (system_str in ['damped_harmonic_oscillator', 'dho']):
 		return damped_harmonic_oscillator;
 
@@ -292,7 +294,7 @@ class linear_1D(system):
 		"""
 		if (self.behavior_str == 'steady_state'):
 			ss = (self.init_conds[0]*tf.exp(self.dt*(self.T-1)*phi))[:,:,:,0];
-			ss = tf.clip_by_value(ss, 1e-3, 1e3);
+			ss = tf.clip_by_value(ss, -1e3, 1e3);
 			T_x = tf.concat((ss, tf.square(ss)), 2);
 		return T_x;
 
@@ -423,7 +425,7 @@ class damped_harmonic_oscillator(system):
 		mu = behavior['mu'];
 		Sigma = behavior['Sigma'];
 		mu_mu = mu;
-		mu_Sigma = Sigma;
+		mu_Sigma = np.square(mu_mu) + Sigma;
 		print(mu_mu.shape, mu_Sigma.shape);
 		mu = np.concatenate((mu_mu, mu_Sigma), 0);
 		return mu;
@@ -456,12 +458,14 @@ class linear_2D(system):
 		behavior_str (str): determines sufficient statistics that characterize system
 	"""
 
-	def __init__(self, behavior_str, T, dt, init_conds):
-		super().__init__(behavior_str, T, dt);
+	def __init__(self, behavior_str, bounds):
+		self.behavior_str = behavior_str;
 		self.name = 'linear_2D';
 		self.D = 4;
-		self.init_conds = init_conds;
+		self.dt = .001;
+		self.T = 1;
 		self.num_suff_stats = 6;
+		self.bounds = bounds;
 
 	def compute_suff_stats(self, phi):
 		"""Compute sufficient statistics of density network samples.
@@ -493,6 +497,7 @@ class linear_2D(system):
 
 		tau = 0.100; # 100ms
 		print('phi', phi.shape);
+		"""
 		w1 = phi[:,:,0,:];
 		w2 = phi[:,:,1,:];
 		w3 = phi[:,:,2,:];
@@ -502,13 +507,22 @@ class linear_2D(system):
 		a2 = w2/tau;
 		a3 = w3/tau;
 		a4 = (w4-1)/tau;
+		"""
 
-		beta = tf.square(a1 + a4) - 4*(a1*a4 + a2*a3);
+		a1 = phi[:,:,0,:];
+		a2 = phi[:,:,1,:];
+		a3 = phi[:,:,2,:];
+		a4 = phi[:,:,3,:];
 
+		beta = tf.complex(tf.square(a1 + a4) - 4*(a1*a4 + a2*a3), np.float64(0.0));
+		beta_sqrt = tf.sqrt(beta);
+		real_common = tf.complex(0.5*(a1 + a4), np.float64(0.0));
 		if (self.behavior_str == 'oscillation'):
-			lambda_1_real = 0.5*((a1 + a4) + tf.sqrt(tf.relu(beta)));
-			lambda_2_real = 0.5*((a1 + a4) - tf.sqrt(tf.relu(beta)));
-			lambda_1_imag = 0.5*tf.relu(-beta);
+			lambda_1 = real_common + beta_sqrt;
+			lambda_2 = real_common - beta_sqrt;
+			lambda_1_real = tf.real(lambda_1);
+			lambda_2_real = tf.real(lambda_2);
+			lambda_1_imag = tf.imag(lambda_1);
 			moments = [lambda_1_real, tf.square(lambda_1_real), \
 			           lambda_2_real, tf.square(lambda_2_real), \
 			           lambda_1_imag, tf.square(lambda_1_imag)];
@@ -518,7 +532,13 @@ class linear_2D(system):
 
 	def compute_mu(self, behavior):
 		mu = behavior['mu'];
+		Sigma = behavior['Sigma'];
+		mu_mu = mu;
+		mu_Sigma = np.square(mu_mu) + Sigma;
+		print(mu_mu.shape, mu_Sigma.shape);
+		mu = np.array([mu_mu[0], mu_Sigma[0], \
+			           mu_mu[1], mu_Sigma[1], \
+			           mu_mu[2], mu_Sigma[2]]);
 		return mu;
-
 
 
