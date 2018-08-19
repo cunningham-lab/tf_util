@@ -458,14 +458,13 @@ class linear_2D(system):
 		behavior_str (str): determines sufficient statistics that characterize system
 	"""
 
-	def __init__(self, behavior_str, bounds):
+	def __init__(self, behavior_str):
 		self.behavior_str = behavior_str;
 		self.name = 'linear_2D';
 		self.D = 4;
 		self.dt = .001;
 		self.T = 1;
 		self.num_suff_stats = 6;
-		self.bounds = bounds;
 
 	def compute_suff_stats(self, phi):
 		"""Compute sufficient statistics of density network samples.
