@@ -518,8 +518,8 @@ class linear_2D(system):
 		beta_sqrt = tf.sqrt(beta);
 		real_common = tf.complex(0.5*(a1 + a4), np.float64(0.0));
 		if (self.behavior_str == 'oscillation'):
-			lambda_1 = real_common + beta_sqrt;
-			lambda_2 = real_common - beta_sqrt;
+			lambda_1 = real_common + 0.5*beta_sqrt;
+			lambda_2 = real_common - 0.5*beta_sqrt;
 			lambda_1_real = tf.real(lambda_1);
 			lambda_2_real = tf.real(lambda_2);
 			lambda_1_imag = tf.imag(lambda_1);
