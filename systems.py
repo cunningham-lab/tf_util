@@ -349,6 +349,7 @@ class damped_harmonic_oscillator(system):
 		self.num_suff_stats = 2*T;
 		self.bounds = bounds;
 
+
 	def simulate(self, phi):
 		"""Compute sufficient statistics that require simulation.
 
@@ -367,29 +368,29 @@ class damped_harmonic_oscillator(system):
 		c = phi[:,:,1,:];
 		m = phi[:,:,2,:];
 
+		
 		w_0 = tf.sqrt(tf.divide(k,m));
 		zeta = tf.divide(c, 2.0*tf.sqrt(tf.multiply(m,k)));
 
-		X = [];
-		Y = [];
-		X_t = self.init_conds[0]*tf.ones((K,M,1), dtype=tf.float64);
-		Y_t = self.init_conds[1]*tf.ones((K,M,1), dtype=tf.float64);
-		X.append(tf.expand_dims(X_t, 3));
-		Y.append(tf.expand_dims(Y_t, 3));
-		for i in range(1,self.T):
-			X_dot = Y_t;
-			Y_dot = -2.0*tf.multiply(tf.multiply(w_0, zeta), Y_t) - tf.multiply(tf.square(w_0), X_t);
-			X_next = X_t + self.dt*X_dot;
-			Y_next = Y_t + self.dt*Y_dot;
-			X.append(tf.expand_dims(X_next, 3));
-			Y.append(tf.expand_dims(Y_next, 3));
-			X_t = X_next;
-			Y_t = Y_next;
+		def dydt(y, t):
+			y1 = y[0];
+			y2 = y[1];
+			    
+			y1_dot = y2;
+			y2_dot = -2.0*tf.multiply(tf.multiply(w_0, zeta), y2) - tf.multiply(tf.square(w_0), y1);
+
+			ydot = tf.stack([y1_dot, y2_dot]);
+			return ydot;
+
+		y0 = tf.concat((self.init_conds[0]*tf.ones((1,K,M,1), dtype=tf.float64), \
+                                self.init_conds[1]*tf.ones((1,K,M,1), dtype=tf.float64)), axis=0);
+		t = np.linspace(0,self.dt*(self.T-1), self.T);
+
+		out = tf.contrib.integrate.odeint_fixed(dydt, y0, t, method='rk4');
+
+		return tf.transpose(out[:,:,:,:,0], [2,3,1,0]); # make it K x M x D (sys) x T
 
 
-		X = tf.concat(X, axis=3);
-		Y = tf.concat(Y, axis=3);
-		return tf.concat((X,Y), axis=2);
 
 	def compute_suff_stats(self, phi):
 		"""Compute sufficient statistics of density network samples.
