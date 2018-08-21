@@ -614,7 +614,7 @@ class RNN_rank1(system):
 		Mi = 0.0;
 
 		Sim = tf.sqrt(tf.reduce_mean(tf.square(m - tf.expand_dims(Mm, 2)), 2));
-		Sin = tf.sqrt(tf.reduce_mean(tf.square(n - tf.expand_dims(Mn, 2)), 2);
+		Sin = tf.sqrt(tf.reduce_mean(tf.square(n - tf.expand_dims(Mn, 2)), 2));
 		Sip = 1.0;
 
 
