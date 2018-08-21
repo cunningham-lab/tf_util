@@ -6,6 +6,7 @@ import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
 from itertools import compress
+from util import tf_integrals as tf_integrals
 
 def system_from_str(system_str):
 	if (system_str in ['null', 'null_on_interval']):
@@ -20,6 +21,8 @@ def system_from_str(system_str):
 		return linear_2D;
 	elif (system_str in ['damped_harmonic_oscillator', 'dho']):
 		return damped_harmonic_oscillator;
+	elif (system_str in ['rank1_rnn']):
+		return RNN_rank1;
 
 
 class system:
@@ -540,5 +543,117 @@ class linear_2D(system):
 			           mu_mu[1], mu_Sigma[1], \
 			           mu_mu[2], mu_Sigma[2]]);
 		return mu;
+
+
+
+
+
+
+class RNN_rank1(system):
+	"""Rank-1 RNN with bistable states for low input magnitudes
+	   See Fig. 2F - Mastrogiuseppe et. al. 2018
+
+	Attributes:
+		D (int): parametric dimensionality
+		T (int): number of time points
+		dt (float): time resolution of simulation
+		behavior_str (str): determines sufficient statistics that characterize system
+	"""
+
+	def __init__(self, D, T, Sini, Ics_0, Ics_1, behavior_str):
+		self.behavior_str = behavior_str;
+		self.name = 'rank1_rnn';
+		self.D = D;
+		self.dt = .001;
+		self.eps = 0.8;
+		self.g = 0.8;
+		self.T = T;
+		self.Sini = Sini;
+		self.Ics_0 = Ics_0;
+		self.Ics_1 = Ics_1;
+		self.num_suff_stats = 4;
+
+	def compute_suff_stats(self, phi):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+		"""
+		if (self.behavior_str == 'bistable'):
+			T_x = self.simulation_suff_stats(phi);
+		else:
+			raise NotImplementedError;
+		return T_x;
+
+	def simulation_suff_stats(self, phi):
+		"""Compute sufficient statistics that require simulation.
+
+		Args:
+			phi (tf.tensor): Density network system parameter samples.
+
+		Returns:
+			T_x (tf.tensor): Simulation-derived sufficient statistics of samples.
+		"""
+		if (self.behavior_str == 'bistable'):
+			X = self.simulate(phi);
+			ss0 = tf.clip_by_value(tf.expand_dims(X[:,:,0,2], 2), -1e3, 1e3);
+			ss1 = tf.clip_by_value(tf.expand_dims(X[:,:,1,2], 2), -1e3, 1e3);
+			T_x = tf.concat((ss0, tf.square(ss0), ss1, tf.square(ss1)), 2);
+		return T_x;
+
+	def simulate(self, phi):
+		rnn_dim = self.D//2;
+		m = phi[:,:,:rnn_dim,0];
+		n = phi[:,:,rnn_dim:,0];
+
+		Mm = tf.reduce_mean(m,2);
+		Mn = tf.reduce_mean(n,2);
+		Mi = 0.0;
+
+		Sim = tf.reduce_mean(tf.square(m - tf.expand_dims(Mm, 2)), 2);
+		Sin = tf.reduce_mean(tf.square(n - tf.expand_dims(Mn, 2)), 2);
+		Sip = 1.0;
+
+
+		def consistent_solve(y, g, eps, T):
+			y_1 = y[:,:,0];
+			y_2 = y[:,:,1];
+			y_3 = y[:,:,2];
+			for i in range(T):
+				Sii = tf.sqrt((self.Sini/Sin)**2 + Sip**2);
+
+				mu = Mm * y_3 + Mi
+				new1 = g*g * tf_integrals.PhiSq(mu, y_2) + Sim**2 * y_3**2 + Sii**2
+				new2 =  Mn * tf_integrals.Phi(mu, y_2) + self.Sini * tf_integrals.Prime(mu, y_2)
+
+				y_new_1 = Mm * new2 + Mi
+				y_new_2 = (1-eps)*y_2 + eps*new1
+				y_new_3 = (1-eps)*y_3 + eps*new2
+
+				y_1 = y_new_1;
+				y_2 = y_new_2;
+				y_3 = y_new_3;
+
+			y_out = tf.stack([y_1, y_2, y_3], axis=0);
+			return y_out;
+
+		sol_0 = consistent_solve(self.Ics_0, self.g, self.eps, self.T);
+		sol_1 = consistent_solve(self.Ics_1, self.g, self.eps, self.T);
+		out = tf.stack((tf.transpose(sol_0, [1,2,0]), \
+		 	            tf.transpose(sol_0, [1,2,0])), axis=2); # K x M x D x T
+		return out;
+
+	def compute_mu(self, behavior):
+		mu = behavior['mu'];
+		Sigma = behavior['Sigma'];
+		mu_mu = mu;
+		mu_Sigma = np.square(mu_mu) + Sigma;
+		mu = np.array([mu_mu[0], mu_Sigma[0], \
+			           mu_mu[1], mu_Sigma[1]]);
+		return mu;
+
 
 
