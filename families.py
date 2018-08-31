@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import truncated_multivariate_normal_rvs, get_GP_Sigma, \
-                              drawPoissonCounts
+                              drawPoissonCounts, get_sampler_func
 from tf_util.tf_util import count_layer_params
 from tf_util.flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
 import scipy.stats
@@ -35,6 +35,7 @@ def family_from_str(exp_fam_str):
 		return GP_Dirichlet;
 	elif (exp_fam_str in ['Fake_GP_Dirichlet']):
 		return Fake_GP_Dirichlet;
+
 
 def autocov_tf(X, tau_max, T):
     # need to finish this
@@ -71,7 +72,7 @@ class family:
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""family constructor
 
 		Args:
@@ -85,6 +86,14 @@ class family:
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
 		self.has_log_p = False;
+		if (eta_dist is not None):
+			self.eta_dist = eta_dist;
+		else:
+			print('calling default prior');
+			self.eta_dist = self.default_eta_dist();
+		print('self.eta_dist', self.eta_dist);
+		self.eta_sampler = get_sampler_func(self.eta_dist, self.D);
+
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
 		"""Returns EFN component dimensionalities for the family."""
@@ -107,6 +116,10 @@ class family:
 
 	def compute_log_base_measure(self, X):
 		"""Compute log base measure of density network samples."""
+		raise NotImplementedError();
+
+	def default_eta_dist(self,):
+		"""Description."""
 		raise NotImplementedError();
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
@@ -233,14 +246,14 @@ class posterior_family(family):
 	"""
 
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""posterior family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D,T);
+		super().__init__(D, T, eta_dist);
 		self.D_Z = None;
 		self.num_prior_suff_stats = None;
 		self.num_likelihood_suff_stats = None;
@@ -287,14 +300,14 @@ class multivariate_normal(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""multivariate_normal family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'normal';
 		self.D_Z = D;
 		self.num_suff_stats = int(D+D*(D+1)/2);
@@ -380,18 +393,20 @@ class multivariate_normal(family):
 		log_h_x = -(self.D/2)*np.log(2*np.pi)*tf.ones((K,M), dtype=tf.float64);
 		return log_h_x;
 
+	def default_eta_dist(self,):
+		dist = {'family':'iso_mvn_and_iso_iw', \
+		                  'mu':np.zeros((self.D,)), 'scale':1.0, \
+		                  'df_fac':5};
+		return dist;
+
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
 		T_x_input = np.zeros((K, self.num_T_x_inputs));
-		df_fac = 5;
-		df = df_fac*self.D_Z;
-		Sigma_dist = scipy.stats.invwishart(df=df, scale=df*np.eye(self.D_Z));
 		params = [];
 		for k in range(K):
-			mu_k = np.random.multivariate_normal(np.zeros((self.D_Z,)), np.eye(self.D_Z));
-			Sigma_k = Sigma_dist.rvs(1);
+			mu_k, Sigma_k = self.eta_sampler();
 			params_k = {'mu':mu_k, 'Sigma':Sigma_k};
 			params.append(params_k);
 			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, give_hint);
@@ -516,14 +531,14 @@ class dirichlet(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""dirichlet family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'dirichlet';
 		self.D_Z = D-1;
 		self.num_suff_stats = D;
@@ -609,6 +624,10 @@ class dirichlet(family):
 		log_h_x = -tf.reduce_sum(tf.log(X), [2]);
 		return log_h_x[:,:,0];
 
+	def default_eta_dist(self,):
+		dist = {'family':'uniform', 'a':0.5, 'b':5.0};
+		return dist;
+
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
@@ -616,7 +635,7 @@ class dirichlet(family):
 		T_x_input = np.zeros((K, self.num_T_x_inputs));
 		params = [];
 		for k in range(K):
-			alpha_k = np.random.uniform(.5, 5, (self.D,));
+			alpha_k = self.eta_sampler();
 			params_k = {'alpha':alpha_k};
 			params.append(params_k);
 			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, give_hint);
@@ -722,7 +741,7 @@ class inv_wishart(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""inv_wishart family constructor
 
 		Args:
@@ -730,9 +749,9 @@ class inv_wishart(family):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-		super().__init__(D, T);
-		self.name = 'inv_wishart';
 		self.sqrtD = int(np.sqrt(D));
+		super().__init__(D, T, eta_dist);
+		self.name = 'inv_wishart';
 		self.D_Z = int(self.sqrtD*(self.sqrtD+1)/2)
 		self.num_suff_stats = self.D_Z + 1;
 		self.has_log_p = True;
@@ -829,19 +848,22 @@ class inv_wishart(family):
 		log_h_x = tf.zeros((K,M), dtype=tf.float64);
 		return log_h_x;
 
+	def default_eta_dist(self,):
+			dist = {'family':'ui_and_iso_iw', \
+			                 'ui_dim':1, 'iw_dim':self.sqrtD, \
+			                 'a':2*self.sqrtD, 'b':3*self.sqrtD, \
+			                 'df_fac':100};
+			return dist;
+
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
 		T_x_input = np.zeros((K, self.num_T_x_inputs));
 
-		df_fac = 100;
-		df = df_fac*self.sqrtD;
-		Psi_dist = scipy.stats.invwishart(df=df, scale=df*np.eye(self.sqrtD));
 		params = [];
 		for k in range(K):
-			Psi_k = Psi_dist.rvs(1);
-			m_k = np.random.randint(2*self.sqrtD,3*self.sqrtD+1)
+			m_k, Psi_k = self.eta_sampler();
 			params_k = {'Psi':Psi_k, 'm':m_k};
 			params.append(params_k);
 			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, give_hint);
@@ -897,7 +919,7 @@ class inv_wishart(family):
 		Psi = params['Psi'];
 		m = params['m'];
 		X = np.reshape(X, [batch_size, self.sqrtD, self.sqrtD]);
-		log_p_x = scipy.stats.invwishart.logpdf(np.transpose(X, [1,2,0]), m, Psi);
+		log_p_x = scipy.stats.invwishart.logpdf(np.transpose(X, [1,2,0]), float(m), Psi);
 		return log_p_x;
 
 	def approx_KL(self, log_Q, X, params):
@@ -931,7 +953,7 @@ class hierarchical_dirichlet(posterior_family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""hierarchical_dirichlet family constructor
 
 		Args:
@@ -939,7 +961,7 @@ class hierarchical_dirichlet(posterior_family):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'hierarchical_dirichlet';
 		self.D_Z = D-1;
 		self.num_prior_suff_stats = D + 1;
@@ -1100,7 +1122,7 @@ class dirichlet_multinomial(posterior_family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""dirichlet_multinomial family constructor
 
 		Args:
@@ -1108,7 +1130,7 @@ class dirichlet_multinomial(posterior_family):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'dirichlet_multinomial';
 		self.D_Z = D-1;
 		self.num_prior_suff_stats = D + 1;
@@ -1185,7 +1207,7 @@ class dirichlet_multinomial(posterior_family):
 			alpha_0_k = np.random.uniform(1.0, 10.0, (self.D,));
 			dist1 = scipy.stats.dirichlet(alpha_0_k);
 			z = dist1.rvs(1);
-			dist2 = scipy.stats.dirichlet(z[0]);
+			dist2 = scipy.stats.multinomial(1, z[0]);
 			x = dist2.rvs(N).T;
 			x = (x+x_eps);
 			x = x / np.expand_dims(np.sum(x, 0), 0);
@@ -1247,7 +1269,7 @@ class truncated_normal_poisson(posterior_family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1):
+	def __init__(self, D, T=1, eta_dist=None):
 		"""truncated_normal_poisson family constructor
 
 		Args:
@@ -1255,7 +1277,7 @@ class truncated_normal_poisson(posterior_family):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'truncated_normal_poisson';
 		self.D_Z = D;
 		self.num_prior_suff_stats = int(D+D*(D+1)/2) + 1;
@@ -1443,7 +1465,7 @@ class log_gaussian_cox(posterior_family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1, prior=[]):
+	def __init__(self, D, T=1, eta_dist=None, prior=[]):
 		"""truncated_normal_poisson family constructor
 
 		Args:
@@ -1451,7 +1473,7 @@ class log_gaussian_cox(posterior_family):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-		super().__init__(D, T);
+		super().__init__(D, T, eta_dist);
 		self.name = 'log_gaussian_cox';
 		self.D_Z = D;
 		self.num_prior_suff_stats = int(D+D*(D+1)/2) + 1;
