@@ -21,7 +21,20 @@ def get_sampler_func(dist, D):
         mu = dist['mu'];
         scale = dist['scale'];
         Sigma = scale*np.eye(D);
-        dist.update({'family':'multivariate_normal', 'Sigma':Sigma});
+        dist = {'family':'multivariate_normal', 'mu':mu, 'Sigma':Sigma};
+        return get_sampler_func(dist, D);
+
+    elif (dist['family'] == 'truncated_normal'):
+        mu = dist['mu'];
+        Sigma = dist['Sigma'];
+        L = np.linalg.cholesky(Sigma);
+        return lambda : truncated_multivariate_normal_fast_rvs(mu, L);
+
+    elif (dist['family'] == 'isotropic_truncated_normal'):
+        mu = dist['mu'];
+        scale = dist['scale'];
+        Sigma = scale*np.eye(D);
+        dist = {'family':'truncated_normal', 'mu':mu, 'Sigma':Sigma};
         return get_sampler_func(dist, D);
 
     elif (dist['family'] == 'inv_wishart'):
@@ -34,7 +47,7 @@ def get_sampler_func(dist, D):
         df_fac = dist['df_fac'];
         df = df_fac*D;
         Psi = df*np.eye(D);
-        dist.update({'family':'inv_wishart', 'df':df, 'Psi':Psi});
+        dist = {'family':'inv_wishart', 'df':df, 'Psi':Psi};
         return get_sampler_func(dist, D);
 
     elif (dist['family'] == 'iso_mvn_and_iso_iw'):
@@ -78,6 +91,16 @@ def get_dist_str(dist):
         scale = dist['scale'];
         return 'in_s=%.2f' % scale;
 
+    elif (dist['family'] == 'truncated_normal'):
+        mu = dist['mu'];
+        scale = dist['scale'];
+        return 'tn';
+
+    elif (dist['family'] == 'isotropic_truncated_normal'):
+        mu = dist['mu'];
+        scale = dist['scale'];
+        return 'itn_s=%.2f' % scale;
+
     elif (dist['family'] == 'inv_wishart'):
         df = dist['df'];
         Psi = dist['Psi'];
@@ -113,6 +136,17 @@ def drawPoissonCounts(z, N):
     for i in range(D):
         x[i,:] = np.random.poisson(z[i], (N,));
     return x;
+
+def truncated_multivariate_normal_fast_rvs(mu, L):
+    D = mu.shape[0];
+    rejected = True;
+    count = 1;
+    while (rejected):
+        z0 = np.random.normal(0,1,(D));
+        z = np.dot(L, z0) + mu;
+        rejected = 1 - np.prod((np.sign(z)+1)/2);
+        count += 1;
+    return z;
 
 def truncated_multivariate_normal_rvs(mu, Sigma):
     D = mu.shape[0];
