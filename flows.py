@@ -44,14 +44,19 @@ class PlanarFlowLayer(Layer):
         self.w = None;
         self.b = None;
         self.lock = False;
+        self.most_random_init = True;
 
     def get_layer_info(self,):
         u_dim = (self.dim,1);
         w_dim = (self.dim,1);
         b_dim = (1,1);
         dims = [u_dim, w_dim, b_dim];
-        initializers = [tf.constant(np.zeros(u_dim)), tf.glorot_uniform_initializer(), \
-                        tf.constant(np.zeros(b_dim))];
+        if (self.most_random_init):
+            initializers = [tf.glorot_uniform_initializer(), tf.glorot_uniform_initializer(), \
+                            tf.glorot_uniform_initializer()];
+        else:
+            initializers = [tf.constant(np.zeros(u_dim)), tf.glorot_uniform_initializer(), \
+                            tf.constant(np.zeros(b_dim))];
         return self.name, self.param_names, dims, initializers, self.lock;
 
     def get_params(self,):
