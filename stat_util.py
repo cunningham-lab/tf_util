@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import invwishart, dirichlet
+from scipy.stats import invwishart, dirichlet, multivariate_normal
 
 def get_sampler_func(dist, D):
     if (dist['family'] == 'uniform'):
@@ -70,6 +70,77 @@ def get_sampler_func(dist, D):
         iso_iw_sampler = get_sampler_func(dist_iso_iw, dist['iw_dim']);
         return lambda : (ui_sampler(), iso_iw_sampler());
 
+def get_density_func(dist, D):
+    if (dist['family'] == 'uniform'):
+        a = dist['a'];
+        b = dist['b'];
+        return lambda : np.power(1.0 / (b-a), D);
+
+    elif (dist['family'] == 'uniform_int'):
+        a = dist['a'];
+        b = dist['b'];
+        return lambda : 1.0 / (b-a);
+
+    elif (dist['family'] == 'multivariate_normal'):
+        mu = dist['mu'];
+        Sigma = dist['Sigma'];
+        mvn = multivariate_normal(mu, Sigma);
+        return lambda x : mvn.pdf(x);
+
+    elif (dist['family'] == 'isotropic_normal'):
+        mu = dist['mu'];
+        scale = dist['scale'];
+        Sigma = scale*np.eye(D);
+        dist = {'family':'multivariate_normal', 'mu':mu, 'Sigma':Sigma};
+        return get_density_func(dist, D);
+
+    elif (dist['family'] == 'truncated_normal'):
+        mu = dist['mu'];
+        Sigma = dist['Sigma'];
+        dist = {'family':'multivariate_normal', 'mu':mu, 'Sigma':Sigma};
+        return get_density_func(dist, D);
+
+    elif (dist['family'] == 'isotropic_truncated_normal'):
+        mu = dist['mu'];
+        scale = dist['scale'];
+        Sigma = scale*np.eye(D);
+        dist = {'family':'multivariate_normal', 'mu':mu, 'Sigma':Sigma};
+        return get_density_func(dist, D);
+
+    elif (dist['family'] == 'inv_wishart'):
+        df = dist['df'];
+        Psi = dist['Psi'];
+        iw = invwishart(df=df, scale=Psi);
+        return lambda x : iw.pdf(x);
+
+    elif (dist['family'] == 'isotropic_inv_wishart'):
+        df_fac = dist['df_fac'];
+        df = df_fac*D;
+        Psi = df*np.eye(D);
+        dist = {'family':'inv_wishart', 'df':df, 'Psi':Psi};
+        return get_density_func(dist, D);
+
+    elif (dist['family'] == 'iso_mvn_and_iso_iw'):
+        mu = dist['mu'];
+        scale = dist['scale']
+        dist_iso_mvn = {'family':'isotropic_normal', 'mu':mu, 'scale':scale}
+        df_fac = dist['df_fac'];
+        dist_iso_iw = {'family':'isotropic_inv_wishart', 'df_fac':df_fac};
+        iso_mvn_pdf = get_density_func(dist_iso_mvn, D);
+        iso_iw_pdf = get_density_func(dist_iso_iw, D);
+        return lambda x, y : iso_mvn_pdf(x)*iso_iw_pdf(y);
+
+    elif (dist['family'] == 'ui_and_iso_iw'):
+        a = dist['a'];
+        b = dist['b'];
+        dist_ui = {'family':'uniform_int', 'a':a, 'b':b}
+        df_fac = dist['df_fac'];
+        dist_iso_iw = {'family':'isotropic_inv_wishart', 'df_fac':df_fac};
+        ui_pdf = get_density_func(dist_ui, dist['ui_dim']);
+        iso_iw_pdf = get_density_func(dist_iso_iw, dist['iw_dim']);
+        return lambda x, y : ui_pdf(x)*iso_iw_pdf(y);
+
+
 def get_dist_str(dist):
     if (dist['family'] == 'uniform'):
         a = dist['a'];
@@ -89,7 +160,7 @@ def get_dist_str(dist):
     elif (dist['family'] == 'isotropic_normal'):
         mu = dist['mu'];
         scale = dist['scale'];
-        return 'in_s=%.2f' % scale;
+        return 'in_s=%.3f' % scale;
 
     elif (dist['family'] == 'truncated_normal'):
         mu = dist['mu'];

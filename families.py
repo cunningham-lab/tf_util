@@ -89,9 +89,7 @@ class family:
 		if (eta_dist is not None):
 			self.eta_dist = eta_dist;
 		else:
-			print('calling default prior');
 			self.eta_dist = self.default_eta_dist();
-		print('self.eta_dist', self.eta_dist);
 		self.eta_sampler = get_sampler_func(self.eta_dist, self.D);
 
 
