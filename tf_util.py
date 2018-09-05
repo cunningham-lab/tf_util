@@ -36,7 +36,9 @@ def construct_latent_dynamics(flow_dict, D_Z, T):
     if (latent_dynamics is None):
         return [];
 
-    inits = flow_dict['inits'];
+    if (latent_dynamics is not 'flatten'):
+        inits = flow_dict['inits'];
+
     if ('lock' in flow_dict):
         lock = flow_dict['lock'];
     else:
@@ -55,6 +57,9 @@ def construct_latent_dynamics(flow_dict, D_Z, T):
         param_init = {'A_init':inits['A_init'], 'sigma_init':inits['sigma_init']};
         layer = VAR_Layer('VAR_Layer', dim=D_Z, T=T, P=flow_dict['P'], \
                       inits=inits, lock=lock);
+
+    elif (latent_dynamics == 'flatten'):
+        layer = FullyConnectedFlowLayer('Flat_Affine_Layer', dim=int(D_Z*T));
 
     else:
         raise NotImplementedError();
@@ -155,8 +160,14 @@ def connect_flow(Z, layers, theta, ts=None):
         print(i, layer.name);
         theta_layer = theta[i];
         layer.connect_parameter_network(theta_layer);
+        # feed in ts for the process latent dynamical flows
         if (isinstance(layer, GP_Layer) or isinstance(layer, GP_EP_CondRegLayer)):
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians, ts);
+        elif (layer.name[:4] == 'Flat'):
+            print('flattening this layer!');
+            Z = tf.reshape(Z, [K,M,D_Z*T,1]);
+            Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);
+            Z = tf.reshape(Z, [K,M,D_Z,T]);
         else:
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);
         Z_by_layer.append(Z);
@@ -180,3 +191,22 @@ def count_params(all_params):
         param_shape = tuple(param.get_shape().as_list());
         nparam_vals += np.prod(param_shape);
     return nparam_vals;
+
+def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
+    T_x_shape = tf.shape(T_x_mu_centered);
+    M = T_x_shape[1];
+    H = -tf.reduce_mean(log_q_x);
+    R = tf.reduce_mean(T_x_mu_centered[0], 0)
+    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0,0]);
+    cost = cost_terms_1 + (c/2.0)*tf.reduce_sum(tf.square(R));
+    grad_func1 = tf.gradients(cost_terms_1, all_params);
+    
+    T_x_1 = T_x_mu_centered[0,:(M//2),:];
+    T_x_2 = T_x_mu_centered[0,(M//2):,:];
+    grad_con = Lop(T_x_1, all_params, T_x_2);
+    grads = [];
+    nparams = len(all_params);
+    for i in range(nparams):
+        grads.append(grad_func1[i] + c*grad_con[i]);
+
+    return cost, grads, H;
