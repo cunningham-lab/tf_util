@@ -1712,6 +1712,10 @@ class log_gaussian_cox(posterior_family):
 			param_net_input = x.T;
 		return eta, param_net_input;
 
+
+
+
+
 class surrogate_S_D(family):
 	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
 
@@ -1731,7 +1735,11 @@ class surrogate_S_D(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D, T);
+		self.D = D;
+		self.realT = T;
+		self.num_T_x_inputs = 0;
+		self.constant_base_measure = True;
+		self.has_log_p = True;
 		self.name = 'S_D';
 		self.T = T;
 		self.D_Z = D;
@@ -1817,14 +1825,8 @@ class surrogate_S_D(family):
 		T_x_cov = tf.reshape(T_x_cov_KMDcovT, [K,M,tf.cast(self.D*(self.D+1)/2, tf.int32)*T]);
 		T_x_D = tf.concat((T_x_mean, T_x_cov), axis=2);
 
-		print('T_x_S');
-		print(T_x_S.shape);
-		print('T_x_D');
-		print(T_x_D.shape);
 		# collect suff stats
 		T_x = tf.concat((T_x_S, T_x_D), axis=2);
-		print('T_x');
-		print(T_x.shape);
 
 		return T_x;
 
@@ -1839,8 +1841,8 @@ class surrogate_S_D(family):
 	def compute_mu(self, params):
 		# compute (S) part of mu
 		kernel = params['kernel'];
-		mu = params['mu'];
-		Sigma = params['Sigma'];
+		mu = params['mu_D'];
+		Sigma = params['Sigma_D'];
 		ts = params['ts'];
 		_T = ts.shape[0];
 		autocov_dim = int(_T*(_T-1)/2);
@@ -1884,6 +1886,41 @@ class surrogate_S_D(family):
 		mu = np.concatenate((mu_S, mu_D), 0);
 
 		return mu;
+
+	def log_p_np(self, X, params):
+		"""Computes log probability of X given params.
+
+		Args:
+			X (tf.tensor): density network samples
+			params (dict): Mean parameters.
+
+		Returns:
+			log_p (np.array): Ground truth probability of X for params.
+		"""
+
+		mu = params['mu_ME'];
+		Sigma = params['Sigma_ME'];
+		dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma);
+		K,M,D,T = X.shape;
+		X_DT = np.reshape(np.transpose(X, [0,1,3,2]), [K,M,int(D*T)]);
+		log_p_x = dist.logpdf(X_DT);
+		return log_p_x;
+
+	def approx_KL(self, log_Q, X, params):
+		"""Approximate KL(Q || P).
+
+		Args:
+			log_Q (np.array): log prob of density network samples.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of target distribution.
+
+		Returns:
+			KL (np.float): KL(Q || P)
+		"""
+
+		log_P = self.log_p_np(X, params);
+		KL = np.mean(log_Q - log_P);
+		return KL;
 
 class surrogate_S_D_C(family):
 	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
