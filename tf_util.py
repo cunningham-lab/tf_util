@@ -47,24 +47,35 @@ def construct_latent_dynamics(flow_dict, D_Z, T):
     if (latent_dynamics == 'GP'):
         layer = GP_Layer('GP_Layer', dim=D_Z, \
                          inits=inits, lock=lock);
+        layers = [layer];
 
     elif (latent_dynamics == 'AR'):
         param_init = {'alpha_init':inits['alpha_init'], 'sigma_init':inits['sigma_init']};
         layer = AR_Layer('AR_Layer', dim=D_Z, T=T, P=flow_dict['P'], \
                       inits=inits, lock=lock);
+        layers = [layer];
 
     elif (latent_dynamics == 'VAR'):
         param_init = {'A_init':inits['A_init'], 'sigma_init':inits['sigma_init']};
         layer = VAR_Layer('VAR_Layer', dim=D_Z, T=T, P=flow_dict['P'], \
                       inits=inits, lock=lock);
+        layers = [layer];
 
     elif (latent_dynamics == 'flatten'):
-        layer = FullyConnectedFlowLayer('Flat_Affine_Layer', dim=int(D_Z*T));
+        if ('Flatten_flow_type' in flow_dict.keys()):
+            layers = []
+            layer_ind = 0;
+            for i in range(flow_dict['flatten_repeats']):
+                layers.append(PlanarFlowLayer('Flat_Planar_Layer_%d' % layer_ind, dim=int(D_Z*T)));
+                layer_ind += 1;
+        else:
+            layer = FullyConnectedFlowLayer('Flat_Affine_Layer', dim=int(D_Z*T));
+            layers = [layer];
 
     else:
         raise NotImplementedError();
 
-    return [layer];
+    return layers;
 
 
 def construct_time_invariant_flow(flow_dict, D_Z, T):
@@ -108,6 +119,10 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     else:
         raise NotImplementedError();
 
+    if (flow_dict['scale_layer']):
+        layers.append(ElemMultLayer('ScalarFlow_Layer_0', D_Z));
+        layer_ind += 1;
+
     for i in range(repeats):
         layers.append(flow_class('%s%d' % (name_prefix, layer_ind), D_Z));
         layer_ind += 1;
@@ -150,26 +165,20 @@ def connect_flow(Z, layers, theta, ts=None):
     nlayers = len(layers);
     Z_by_layer = [];
     Z_by_layer.append(Z);
-    print('zshapes in');
-    print('connect flow');
     for i in range(nlayers):
-        print(Z.shape);
         layer = layers[i];
-        print(i, layer.name);
         theta_layer = theta[i];
         layer.connect_parameter_network(theta_layer);
         # feed in ts for the process latent dynamical flows
         if (isinstance(layer, GP_Layer) or isinstance(layer, GP_EP_CondRegLayer)):
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians, ts);
         elif (layer.name[:4] == 'Flat'):
-            print('flattening this layer!');
             Z = tf.reshape(Z, [K,M,D_Z*T,1]);
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);
             Z = tf.reshape(Z, [K,M,D_Z,T]);
         else:
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);
         Z_by_layer.append(Z);
-    print(Z.shape);
     return Z, sum_log_det_jacobians, Z_by_layer;
 
 def count_layer_params(layer):
