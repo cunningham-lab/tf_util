@@ -1735,12 +1735,12 @@ class surrogate_S_D(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
+		self.name = 'S_D';
 		self.D = D;
 		self.realT = T;
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
 		self.has_log_p = True;
-		self.name = 'S_D';
 		self.T = T;
 		self.D_Z = D;
 		self.num_suff_stats = int(D+D*(D+1)/2)*T + D*int((T-1)*T/2);
@@ -1897,11 +1897,12 @@ class surrogate_S_D(family):
 		Returns:
 			log_p (np.array): Ground truth probability of X for params.
 		"""
-
+		eps = 1e-6;
+		K,M,D,T = X.shape;
 		mu = params['mu_ME'];
 		Sigma = params['Sigma_ME'];
+		Sigma += eps*np.eye(D*T);
 		dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma);
-		K,M,D,T = X.shape;
 		X_DT = np.reshape(np.transpose(X, [0,1,3,2]), [K,M,int(D*T)]);
 		log_p_x = dist.logpdf(X_DT);
 		return log_p_x;
@@ -2211,10 +2212,14 @@ class GP_Dirichlet(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D, T);
 		self.name = 'GP_Dirichlet';
+		self.D = D;
 		self.T = T;
 		self.D_Z = D - 1;
+		self.realT = T;
+		self.num_T_x_inputs = 0;
+		self.constant_base_measure = False;
+		self.has_log_p = False;
 		self.num_suff_stats = D*T + D*int((T-1)*T/2);
 		self.set_T_x_names();
 
@@ -2357,126 +2362,3 @@ class GP_Dirichlet(family):
 		num_theta_params += count_layer_params(support_layer);
 		layers.append(support_layer);
 		return layers, num_theta_params;
-
-class NoTimeCon_GP_Dirichlet(family):
-	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
-
-	Attributes:
-		D (int): dimensionality of the exponential family
-		T (int): number of time points
-		D_Z (int): dimensionality of the density network
-		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
-		                      (only necessary for hierarchical dirichlet)
-	"""
-
-	def __init__(self, D, T=1):
-		"""multivariate_normal family constructor
-
-		Args:
-			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
-		"""
-		super().__init__(D, T);
-		self.name = 'GP_Dirichlet';
-		self.T = T;
-		self.D_Z = D - 1;
-		self.num_suff_stats = D*T;
-		self.set_T_x_names();
-
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		num_param_net_inputs = None;
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
-	def set_T_x_names(self,):
-		self.T_x_names = [];
-		self.T_x_names_tf = [];
-		self.T_x_group_names = [];
-
-		for i in range(self.D):
-			for t in range(self.T):
-				self.T_x_names.append('$\log x_{%d,%d}$' % (i+1, t+1));
-				self.T_x_names_tf.append('\log x_%d,%d' % (i+1, t+1));
-				self.T_x_group_names.append('$\log x_{%d,t}$' % (i+1));
-
-		return None;
-
-	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
-		"""Compute sufficient statistics of density network samples.
-
-		Args:
-			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
-
-		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
-		"""
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		T = X_shape[3];
-		_T = tf.cast(T, tf.int32);
-
-		# compute the (D) suff stats
-		log_X = tf.log(X);
-		T_x_D = tf.reshape(log_X, [K, M, self.D*T]);
-
-		return T_x_D;
-
-	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples."""
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		log_h_x = tf.ones((K,M), dtype=tf.float64);
-		return log_h_x;
-
-	def compute_mu(self, params):
-		alpha = params['alpha'];
-		alpha_0 = np.sum(alpha);
-
-		ts = params['ts'];
-		_T = ts.shape[0];
-
-		# compute (D) part of mu		
-		phi_0 = psi(alpha_0);
-		mu_alpha = psi(alpha) - phi_0;
-		thing = np.tile(np.expand_dims(mu_alpha, 1), [1, _T]);
-		mu_D = np.reshape(np.tile(np.expand_dims(mu_alpha, 1), [1, _T]), [self.D*_T]);
-
-		mu = mu_D
-
-		return mu;
-
-	def map_to_support(self, layers, num_theta_params):
-		"""Augment density network with bijective mapping to support.
-
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
-
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-		"""
-		print('IN THE FUNC mapping using simplex bijection!');
-		support_layer = SimplexBijectionLayer();
-		num_theta_params += count_layer_params(support_layer);
-		layers.append(support_layer);
-		return layers, num_theta_params;
-
