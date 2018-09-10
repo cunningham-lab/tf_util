@@ -2,8 +2,9 @@ import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal
 from cvxopt import spmatrix, amd
 import chompack as cp
-from Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
-from Bron_Kerbosch.reporter import Reporter
+from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
+from tf_util.Bron_Kerbosch.reporter import Reporter
+import matplotlib.pyplot as plt
 
 def get_sampler_func(dist, D):
     if (dist['family'] == 'uniform'):
@@ -235,12 +236,12 @@ def truncated_multivariate_normal_rvs(mu, Sigma):
         count += 1;
     return z;
 
-def cov_error(V,I,J,Sigma):
+def mean_cov_error(V,I,J,Sigma):
     num_elems = len(V);
     error = 0.0;
     for i in range(num_elems):
         error += np.square(V[i] - Sigma[I[i], J[i]]);
-    return error;
+    return error/num_elems;
 
 def get_GP_Sigma(tau, T, Ts):
     K = np.zeros((T, T));
@@ -307,9 +308,10 @@ def get_S_D_covariance(Sigma_D, taus, T, Ts):
         
     return Sigma;
 
-def get_S_D_ME_covariance(Sigma_D, taus, T, Ts):
+def get_S_D_ME_covariance(Sigma_D, taus, T, Ts, eps=1e-6, tol=1e-8):
     Sigma = get_S_D_covariance(Sigma_D, taus, T, Ts);
     D = Sigma_D.shape[0];
+    Sigma = Sigma + eps*np.eye(D*T);
     V,I,J,NODES,NEIGHBORS = get_S_D_graph(Sigma, D, T);
     report = Reporter('## bron_kerbosch')
     bronker_bosch3([], set(NODES), set(), report, NEIGHBORS)
@@ -328,7 +330,7 @@ def get_S_D_ME_covariance(Sigma_D, taus, T, Ts):
 
     # algorithm 1 (Speed and Kiiveri)
     Sigma = np.eye(D*T);
-    max_iters = 10000;
+    max_iters = 1000;
     errors = np.zeros((max_iters,));
     for it in range(max_iters):
         for t in range(num_cliques):
@@ -341,11 +343,12 @@ def get_S_D_ME_covariance(Sigma_D, taus, T, Ts):
             
             Sigma_inv[np.expand_dims(clique_t, 1), clique_t] += update_t;
             Sigma = np.linalg.inv(Sigma_inv);
-        error_it = cov_error(V,I,J,Sigma);
-        if (error_it < 1e-10):
+        error_it = mean_cov_error(V,I,J,Sigma);
+        if (error_it < tol):
             break;
-        errors[it] = error_it;
+        print(it, error_it);
 
+        errors[it] = error_it;
     converged = it < max_iters;
     return Sigma, converged;
     

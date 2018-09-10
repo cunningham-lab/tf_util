@@ -1,10 +1,10 @@
 # coding: utf-8
 
-from Bron_Kerbosch.bronker_bosch1 import bronker_bosch1
-from Bron_Kerbosch.bronker_bosch2 import bronker_bosch2
-from Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
-from Bron_Kerbosch.data import *
-from Bron_Kerbosch.reporter import Reporter
+from tf_util.Bron_Kerbosch.bronker_bosch1 import bronker_bosch1
+from tf_util.Bron_Kerbosch.bronker_bosch2 import bronker_bosch2
+from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
+from tf_util.Bron_Kerbosch.data import *
+from tf_util.Bron_Kerbosch.reporter import Reporter
  
  
 if __name__ == '__main__':

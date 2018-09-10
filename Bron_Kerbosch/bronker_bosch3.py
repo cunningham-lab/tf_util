@@ -1,6 +1,6 @@
 # coding: utf-8
 
-from Bron_Kerbosch.bronker_bosch2 import bronker_bosch2
+from tf_util.Bron_Kerbosch.bronker_bosch2 import bronker_bosch2
 MIN_SIZE = 2
 
 
