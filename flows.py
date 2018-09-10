@@ -382,7 +382,7 @@ class AffineFlowLayer(Layer):
 
 
 class FullyConnectedFlowLayer(Layer):
-    def __init__(self, name, dim, A_init, lock):
+    def __init__(self, name, dim, A_init=None, lock=False):
         self.name = name;
         self.dim = dim;
         self.param_names = ['A'];
@@ -392,7 +392,10 @@ class FullyConnectedFlowLayer(Layer):
     def get_layer_info(self,):
         A_dim = (self.dim, self.dim);
         dims = [A_dim];
-        initializers = [tf.constant(self.A_init)];
+        if (self.A_init is not None):
+            initializers = [tf.constant(self.A_init)];
+        else:
+            initializers = [tf.glorot_uniform_initializer()];
         return self.name, self.param_names, dims, initializers, self.lock;
 
     def connect_parameter_network(self, theta_layer):
@@ -489,7 +492,6 @@ class ElemMultLayer(Layer):
 
 
 # Latent dynamical flows
-
 class GP_Layer(Layer):
     def __init__(self, name, dim, inits, lock):
         self.name = name;
