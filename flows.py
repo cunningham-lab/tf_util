@@ -476,8 +476,6 @@ class ElemMultLayer(Layer):
             
     def forward_and_jacobian(self, z, sum_log_det_jacobians):
         K, M, D, T = efn_tensor_shape(z);
-        print('here a');
-        print(self.a.shape);
         log_det_fac = tf.cast(T, tf.float64)*tf.log(tf.abs(tf.reduce_prod(self.a)));
         log_det_jacobian = log_det_fac*tf.ones((K,M), dtype=tf.float64);
         if (not self.param_network):
@@ -485,8 +483,6 @@ class ElemMultLayer(Layer):
             z = tf.multiply(z, a);
         else:
             z = tf.multiply(z, tf.expand_dims(self.a, 1));
-        print(log_det_jacobian.shape);
-        print(sum_log_det_jacobians.shape);
         sum_log_det_jacobians += log_det_jacobian; 
         return z, sum_log_det_jacobians;
 
@@ -671,10 +667,10 @@ class GP_EP_CondRegLayer(Layer):
     def forward_and_jacobian(self, z, sum_log_det_jacobians, ts):
         # TODO: this isn't going to work in an EFN yet
         _K, M, D, T = efn_tensor_shape(z);
-        eps = 0.0;
+        eps = 1e-4;
 
         tau = tf.exp(self.log_tau);
-        ts_0 = ts[0];
+        ts_0 = ts;
         middle_len = tf.shape(ts_0)[0];
 
         # get endpoints
@@ -692,8 +688,8 @@ class GP_EP_CondRegLayer(Layer):
             z_out_is = [];
             for j in range(self.C):
                 Tp_j = self.Tps[j];
-                ts = tf.concat([tf.constant(np.array([0.0]), dtype=tf.float64), tf.constant(np.array([Tp_j]), tf.float64), ts_0], axis=0);
-                ds = tf.expand_dims(ts, 1) - tf.expand_dims(ts, 0);
+                ts_j = tf.concat([tf.constant(np.array([0.0]), dtype=tf.float64), tf.constant(np.array([Tp_j]), tf.float64), ts_0], axis=0);
+                ds = tf.expand_dims(ts_j, 1) - tf.expand_dims(ts_j, 0);
                 K = tf.exp(-(tf.square(ds) / (2*tf.square(tau[i]))));
 
                 #z_middle = tf.slice(z_i, [0, 0, t_ind], [_K, M, middle_len]);
@@ -715,7 +711,9 @@ class GP_EP_CondRegLayer(Layer):
                 L = tf.cholesky(z_GP_Sigma);
                 log_det_jacobian = log_det_jacobian + tf.log(tf.abs(tf.reduce_prod(tf.matrix_diag_part(L))))
 
-                z_GP_hat = z_GP_mu + tf.transpose(tf.tensordot(L, z_middle, [1,2]), [1,2,0]);
+                print(L.shape, z_middle.shape);
+                Lz = tf.tensordot(L, z_middle, [[1],[2]]);
+                z_GP_hat = z_GP_mu + tf.transpose(Lz, [1,2,0]);
                 z_out_ij = tf.expand_dims(tf.concat((z_first[:,:,i,:], z_GP_hat, z_last[:,:,i,:]), 2), 2);
                 z_out_is.append(z_out_ij);
 
@@ -725,7 +723,7 @@ class GP_EP_CondRegLayer(Layer):
         z_out = tf.concat(z_outs, 3); # will be K x M x C x D x T
 
         sum_log_det_jacobians += log_det_jacobian;
-        return z_out, z[:,:,:,t_ind:], sum_log_det_jacobians;
+        return z_out, sum_log_det_jacobians;
 
 
 
