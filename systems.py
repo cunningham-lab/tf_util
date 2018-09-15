@@ -663,9 +663,9 @@ class RNN_rank1(system):
 		mu_Sigma = np.square(mu_mu) + Sigma;
 		mu = np.concatenate((mu_mu, mu_Sigma), axis=0);
 		return mu;
-"""
+
 	def map_to_parameter_support(self, layers, num_theta_params):
-		Augment density network with bijective mapping to support.
+		"""Augment density network with bijective mapping to support.
 
 		Args:
 			layers (list): List of ordered normalizing flow layers.
@@ -674,12 +674,13 @@ class RNN_rank1(system):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+		"""
 		
 		support_layer = SoftPlusLayer();
 		num_theta_params += count_layer_params(support_layer);
 		layers.append(support_layer);
 		return layers, num_theta_params;
-"""
+
 
 
 
