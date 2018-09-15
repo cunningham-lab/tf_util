@@ -2402,7 +2402,8 @@ class GP_Dirichlet_C(family):
 
 		T_no_EP = T;
 		mu_D_len = D*T_no_EP;
-
+		
+		self.C = C;
 		self.num_suff_stats = int(mu_S_len + mu_D_len);
 		self.Tps = Tps;
 		self.Tcs = Tcs;
