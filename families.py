@@ -329,7 +329,8 @@ class multivariate_normal(family):
 			raise NotImplementedError();
 
 		if (give_hint):
-			num_param_net_inputs = int(2*self.D + self.D*(self.D+1));
+			#num_param_net_inputs = int(2*self.D + self.D*(self.D+1));
+			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
 		else:
 			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
 		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
@@ -444,6 +445,7 @@ class multivariate_normal(family):
 			chol_minimal = L[chol_inds];
 			#param_net_input = np.concatenate((eta, chol_minimal));
 			param_net_input = np.concatenate((eta, mu, chol_minimal)); # add mu as well
+			param_net_input = np.concatenate((mu, chol_minimal)); # actually, no eta
 		else:
 			param_net_input = eta;
 		return eta, param_net_input;
@@ -1711,6 +1713,10 @@ class log_gaussian_cox(posterior_family):
 			assert(x.shape[1] == 1 and N == 1);
 			param_net_input = x.T;
 		return eta, param_net_input;
+
+	def default_eta_dist(self,):
+		"""Description."""
+		return None;
 
 
 
