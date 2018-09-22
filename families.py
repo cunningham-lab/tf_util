@@ -329,7 +329,7 @@ class multivariate_normal(family):
 			raise NotImplementedError();
 
 		if (give_hint):
-			num_param_net_inputs = int(self.D + self.D*(self.D+1));
+			num_param_net_inputs = int(2*self.D + self.D*(self.D+1));
 		else:
 			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
 		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
@@ -442,7 +442,8 @@ class multivariate_normal(family):
 		if (give_hint):
 			L = np.linalg.cholesky(Sigma);
 			chol_minimal = L[chol_inds];
-			param_net_input = np.concatenate((eta, chol_minimal));
+			#param_net_input = np.concatenate((eta, chol_minimal));
+			param_net_input = np.concatenate((eta, mu, chol_minimal)); # add mu as well
 		else:
 			param_net_input = eta;
 		return eta, param_net_input;
