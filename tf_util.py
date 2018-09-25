@@ -180,10 +180,10 @@ def connect_flow(Z, layers, theta, ts=None):
         # feed in ts for the process latent dynamical flows
         if (isinstance(layer, GP_Layer) or isinstance(layer, GP_EP_CondRegLayer)):
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians, ts);
-            if (isinstance(layer, GP_EP_CondRegLayer)):
-                C = tf.shape(Z)[2];
-                _T = tf.shape(Z)[4];
-                Z = tf.reshape(tf.transpose(Z, [0,1,3,2,4]), [K,M,D_Z,C*_T]);
+            #if (isinstance(layer, GP_EP_CondRegLayer)):
+            #    C = tf.shape(Z)[2];
+            #    _T = tf.shape(Z)[4];
+            #    Z = tf.reshape(tf.transpose(Z, [0,1,3,2,4]), [K,M,D_Z,C*_T]);
         elif (layer.name[:4] == 'Flat'):
             Z = tf.reshape(Z, [K,M,D_Z*T,1]);
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);

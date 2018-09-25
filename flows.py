@@ -719,10 +719,10 @@ class GP_EP_CondRegLayer(Layer):
                 z_out_ij = tf.expand_dims(tf.concat((z_first[:,:,i,:], z_GP_hat, z_last[:,:,i,:]), 2), 2);
                 z_out_is.append(z_out_ij);
 
-            z_out_i = tf.concat(z_out_is, 2);
-            z_outs.append(tf.expand_dims(z_out_i, 3));
+            z_out_i = tf.concat(z_out_is, 3); # will be K x M x 1 x CT (good)
+            z_outs.append(z_out_i);
 
-        z_out = tf.concat(z_outs, 3); # will be K x M x C x D x T
+        z_out = tf.concat(z_outs, 2); # will be K x M x D x CT
 
         sum_log_det_jacobians += log_det_jacobian;
         return z_out, sum_log_det_jacobians;
