@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from tf_util.flows import AffineFlowLayer, PlanarFlowLayer, SimplexBijectionLayer, \
                         CholProdLayer, StructuredSpinnerLayer, TanhLayer, ExpLayer, \
-                        SoftPlusLayer, GP_EP_CondRegLayer, GP_EP_CondRegFillLayer, GP_Layer, AR_Layer, VAR_Layer, \
+                        SoftPlusLayer, GP_EP_CondRegLayer, GP_Layer, AR_Layer, VAR_Layer, \
                         FullyConnectedFlowLayer, ElemMultLayer
 
 # edit 2

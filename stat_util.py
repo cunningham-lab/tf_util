@@ -7,6 +7,9 @@ from tf_util.Bron_Kerbosch.reporter import Reporter
 import matplotlib.pyplot as plt
 
 def get_sampler_func(dist, D):
+    if (dist is None):
+        return None;
+
     if (dist['family'] == 'uniform'):
         a = dist['a'];
         b = dist['b'];
@@ -147,45 +150,48 @@ def get_density_func(dist, D):
 
 
 def get_dist_str(dist):
+    if (dist is None):
+        return '';
+
     if (dist['family'] == 'uniform'):
         a = dist['a'];
         b = dist['b'];
-        return 'u_%.1fto%.1f' % (a,b);
+        return '_u_%.1fto%.1f' % (a,b);
 
     elif (dist['family'] == 'uniform_int'):
         a = dist['a'];
         b = dist['b'];
-        return 'ui_%dto%d' % (a,b);
+        return '_ui_%dto%d' % (a,b);
 
     elif (dist['family'] == 'multivariate_normal'):
         mu = dist['mu'];
         Sigma = dist['Sigma'];
-        return 'mvn'
+        return '_mvn'
 
     elif (dist['family'] == 'isotropic_normal'):
         mu = dist['mu'];
         scale = dist['scale'];
-        return 'in_s=%.3f' % scale;
+        return '_in_s=%.3f' % scale;
 
     elif (dist['family'] == 'truncated_normal'):
         mu = dist['mu'];
         scale = dist['scale'];
-        return 'tn';
+        return '_tn';
 
     elif (dist['family'] == 'isotropic_truncated_normal'):
         mu = dist['mu'];
         scale = dist['scale'];
-        return 'itn_s=%.2f' % scale;
+        return '_itn_s=%.2f' % scale;
 
     elif (dist['family'] == 'inv_wishart'):
         df = dist['df'];
         Psi = dist['Psi'];
         iw = invwishart(df=df, scale=Psi);
-        return 'iw'
+        return '_iw'
 
     elif (dist['family'] == 'isotropic_inv_wishart'):
         df_fac = dist['df_fac'];
-        return 'iiw_%d' % df_fac;
+        return '_iiw_%d' % df_fac;
 
     elif (dist['family'] == 'iso_mvn_and_iso_iw'):
         mu = dist['mu'];
@@ -193,7 +199,7 @@ def get_dist_str(dist):
         dist_iso_mvn = {'family':'isotropic_normal', 'mu':mu, 'scale':scale}
         df_fac = dist['df_fac'];
         dist_iso_iw = {'family':'isotropic_inv_wishart', 'df_fac':df_fac};
-        return '%s_%s' % (get_dist_str(dist_iso_mvn), get_dist_str(dist_iso_iw));
+        return '%s%s' % (get_dist_str(dist_iso_mvn), get_dist_str(dist_iso_iw));
 
     elif (dist['family'] == 'ui_and_iso_iw'):
         a = dist['a'];
@@ -201,7 +207,7 @@ def get_dist_str(dist):
         dist_ui = {'family':'uniform_int', 'a':a, 'b':b}
         df_fac = dist['df_fac'];
         dist_iso_iw = {'family':'isotropic_inv_wishart', 'df_fac':df_fac};
-        return '%s_%s' % (get_dist_str(dist_ui), get_dist_str(dist_iso_iw));
+        return '%s%s' % (get_dist_str(dist_ui), get_dist_str(dist_iso_iw));
 
 def drawPoissonRates(D, ratelim):
     return np.random.uniform(0.1, ratelim, (D,));

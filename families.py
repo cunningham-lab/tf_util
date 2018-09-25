@@ -27,14 +27,12 @@ def family_from_str(exp_fam_str):
 
 	elif (exp_fam_str in ['S_D', 'D_S']):
 		return surrogate_S_D;
-	elif (exp_fam_str in ['S_D_nodyn', 'D_S_nodyn']):
-		return surrogate_S_D_nodyn;
-	elif (exp_fam_str in ['S_D_C', 'S_C_D', 'D_S_C', 'D_C_S', 'C_S_D', 'C_D_S']):
-		return surrogate_S_D_C;
+	elif (exp_fam_str in ['S_E_D']):
+		return surrogate_S_E_D;
 	elif (exp_fam_str in ['GP_Dirichlet']):
 		return GP_Dirichlet;
-	elif (exp_fam_str in ['GP_Dirichlet_C']):
-		return GP_Dirichlet_C;
+	elif (exp_fam_str in ['GP_E_Dirichlet']):
+		return GP_E_Dirichlet;
 
 def autocov_tf(X, tau_max, T):
     # need to finish this
@@ -444,7 +442,7 @@ class multivariate_normal(family):
 			L = np.linalg.cholesky(Sigma);
 			chol_minimal = L[chol_inds];
 			#param_net_input = np.concatenate((eta, chol_minimal));
-			param_net_input = np.concatenate((eta, mu, chol_minimal)); # add mu as well
+			#param_net_input = np.concatenate((eta, mu, chol_minimal)); # add mu as well
 			param_net_input = np.concatenate((mu, chol_minimal)); # actually, no eta
 		else:
 			param_net_input = eta;
@@ -1741,11 +1739,10 @@ class surrogate_S_D(family):
 		"""
 		self.name = 'S_D';
 		self.D = D;
-		self.realT = T;
+		self.T = T;
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
 		self.has_log_p = True;
-		self.T = T;
 		self.D_Z = D;
 		self.num_suff_stats = int(D+D*(D+1)/2)*T + D*int((T-1)*T/2);
 		self.set_T_x_names();
@@ -1773,25 +1770,9 @@ class surrogate_S_D(family):
 		self.T_x_names_tf = [];
 		self.T_x_group_names = [];
 
-		for d in range(self.D):
-			for t1 in range(self.T):
-				for t2 in range(t1+1,self.T):
-					self.T_x_names.append('$x_{%d,%d}$ $x_{%d,%d}$' % (d+1, t1+1, d+1, t2+1));
-					self.T_x_names_tf.append('x_%d,%d x_%d,%d' % (d+1, t1+1, d+1, t2+1));
-					self.T_x_group_names.append('$x_{%d,t}$ $x_{%d,t+%d}$' % (d+1, d+1, int(abs(t2-t1))));
+		set_T_x_S_names(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T);
+		set_T_x_D_names(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T);
 
-		for i in range(self.D):
-			for t in range(self.T):
-				self.T_x_names.append('$x_{%d,%d}$' % (i+1, t+1));
-				self.T_x_names_tf.append('x_%d,%d' % (i+1, t+1));
-				self.T_x_group_names.append('$x_{%d,t}$' % (i+1));
-
-		for i in range(self.D):
-			for j in range(i,self.D):
-				for t in range(self.T):
-					self.T_x_names.append('$x_{%d,%d}$ $x_{%d,%d}$' % (i+1, t+1, j+1, t+1));
-					self.T_x_names_tf.append('x_%d,%d x_%d,%d' % (i+1, t+1, j+1, t+1));
-					self.T_x_group_names.append('$x_{%d,t}$ $x_{%d,t}$' % (i+1, j+1));
 		return None;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
@@ -1805,30 +1786,8 @@ class surrogate_S_D(family):
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
 		"""
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		T = X_shape[3];
-		_T = tf.cast(T, tf.int32);
-		# compute the (S) suff stats
-		#cov_con_mask_T = np.triu(np.ones((T,T), dtype=np.bool_), 1);
-		ones_mat = tf.ones((T, T));
-		mask_T = tf.matrix_band_part(ones_mat, 0, -1) - tf.matrix_band_part(ones_mat, 0, 0)
-		cov_con_mask_T = tf.cast(mask_T, dtype=tf.bool);
-		XXT_KMDTT = tf.matmul(tf.expand_dims(X, 4), tf.expand_dims(X, 3));
-		T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
-		T_x_S = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*tf.cast(T*(T-1)/2, tf.int32)]);
-
-		# compute the (D) suff stats
-		cov_con_mask_D = np.triu(np.ones((self.D,self.D), dtype=np.bool_), 0);
-		T_x_mean = tf.reshape(X, [K,M,self.D*T]);
-
-		X_KMTD = tf.transpose(X, [0, 1, 3, 2]); # samps x D
-		XXT_KMTDD = tf.matmul(tf.expand_dims(X_KMTD, 4), tf.expand_dims(X_KMTD, 3));
-		T_x_cov_KMDcovT = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMTDD, [3,4,0,1,2]), cov_con_mask_D), [1, 2, 0, 3]);
-		T_x_cov = tf.reshape(T_x_cov_KMDcovT, [K,M,tf.cast(self.D*(self.D+1)/2, tf.int32)*T]);
-		T_x_D = tf.concat((T_x_mean, T_x_cov), axis=2);
-
+		T_x_S = compute_T_x_S(X, self.D, self.T);
+		T_x_D = compute_T_x_D(X, self.D, self.T);
 		# collect suff stats
 		T_x = tf.concat((T_x_S, T_x_D), axis=2);
 
@@ -1843,50 +1802,8 @@ class surrogate_S_D(family):
 		return log_h_x;
 
 	def compute_mu(self, params):
-		# compute (S) part of mu
-		kernel = params['kernel'];
-		mu = params['mu_D'];
-		Sigma = params['Sigma_D'];
-		ts = params['ts'];
-		_T = ts.shape[0];
-		autocov_dim = int(_T*(_T-1)/2);
-		mu_S = np.zeros((int(self.D*autocov_dim),));
-		autocovs = np.zeros((self.D, _T));
-		if (kernel == 'SE'): # squared exponential
-			taus = params['taus'];
-
-		elif (kernel == 'AR1'):
-			alphas = params['alphas'];
-			steps = np.arange(self.T);
-			autocovs = np.zeros((self.D, self.T));
-			for i in range(self.D):
-				autocovs[i,:] = Sigma[i,i]*(alphas[i]**steps);
-		else:
-			raise NotImplementedError();
-
-		ind = 0;
-		ds = np.zeros((autocov_dim,));
-		for t1 in range(_T):
-			for t2 in range(t1+1, _T):
-				ds[ind] = ts[t2] - ts[t1];
-				ind += 1;
-
-		for i in range(self.D):
-			if (kernel == 'SE'):
-				mu_S[(i*autocov_dim):((i+1)*autocov_dim)] = Sigma[i,i]*np.exp(-np.square(ds) / (2*np.square(taus[i])));
-		
-		# compute (D) part of mu		
-		mu_mu = np.reshape(np.tile(mu, [1, _T]), [self.D*_T]);
-		mu_Sigma = np.zeros((int(self.D*(self.D+1)/2)),);
-		ind = 0;
-		for i in range(self.D):
-			for j in range(i,self.D):
-				mu_Sigma[ind] = Sigma[i,j] + mu[i]*mu[j];
-				ind += 1;
-		mu_Sigma = np.reshape(np.tile(np.expand_dims(mu_Sigma, 1), [1, _T]), [int(self.D*(self.D+1)/2)*_T]);
-
-		mu_D = np.concatenate((mu_mu, mu_Sigma), 0);
-
+		mu_S = compute_mu_S(params, self.D, self.T);
+		mu_D = compute_mu_D(params, self.D, self.T);
 		mu = np.concatenate((mu_S, mu_D), 0);
 
 		return mu;
@@ -1927,8 +1844,9 @@ class surrogate_S_D(family):
 		KL = np.mean(log_Q - log_P);
 		return KL;
 
-class surrogate_S_D_C(family):
-	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
+class surrogate_S_E_D(family):
+	"""Maximum entropy distribution with smoothness (S), 
+	   endpoints (E) and dim (D) constraints.
 
 	Attributes:
 		D (int): dimensionality of the exponential family
@@ -1939,38 +1857,27 @@ class surrogate_S_D_C(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T, Tps, Tcs):
+	def __init__(self, D, T, Tps, T_Cs):
 		"""multivariate_normal family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'S_D_C';
+		self.name = 'S_E_D';
 		self.D = D;
-		self.realT = T;
+		self.T = T # total number of time points across all conditions
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
-		self.has_log_p = True;
-		self.T = T
+		self.has_log_p = False;
 		self.D_Z = D;
 
-		C = len(Tcs);
-		mu_S_len = 0.0
-		for i in range(C):
-			mu_S_len += int(Tcs[i]*(Tcs[i]-1)/2);
-			if (i > 0):
-				mu_S_len = mu_S_len - 1;
-		mu_S_len = self.D*mu_S_len;
+		mu_S_len = compute_mu_S_len(D, T_Cs);
+		mu_D_len = (D+D*(D+1)/2)*T;
 
-		T_no_EP = T - 2*(C-1);
-		mu_D_len = (D + (D*(D+1)/2))*T_no_EP;
-
-		mu_C_len = D*int((C-1)*C/2)
-
-		self.num_suff_stats = int(mu_S_len + mu_D_len + mu_C_len);
+		self.num_suff_stats = int(mu_S_len + mu_D_len);
 		self.Tps = Tps;
-		self.Tcs = Tcs;
+		self.T_Cs = T_Cs;
 		self.set_T_x_names();
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
@@ -1995,57 +1902,12 @@ class surrogate_S_D_C(family):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
 		self.T_x_group_names = [];
-		C = len(self.Tcs);
+		C = len(self.T_Cs);
 		count = 0;
-		for i in range(C):
-			Tc = self.Tcs[i];
-			for d in range(self.D):
-				for t1 in range(Tc):
-					for t2 in range(t1+1,Tc):
-						if (i > 0 and t1==0 and t2==(Tc-1)):
-							continue;
-						self.T_x_names.append('$x_{%d,%d,%d}$ $x_{%d,%d,%d}$' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
-						self.T_x_names_tf.append('x_%d,%d,%d x_%d,%d,%d' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
-						self.T_x_group_names.append('$x_{%d,%d,t}$ $x_{%d,%d,t+%d}$' % (i+1, d+1, i+1, d+1, int(abs(t2-t1))));
-						count += 1;
-		print(count);
-		for d in range(self.D):
-			for i in range(C):
-				Tc = self.Tcs[i];
-				if (i==0):
-					ts = range(Tc);
-				else:
-					ts = range(1, Tc-1);
-				for t in ts:
-					self.T_x_names.append('$x_{%d,%d,%d}$' % (i+1,d+1, t+1));
-					self.T_x_names_tf.append('x_%d,%d,%d' % (i+1,d+1, t+1));
-					self.T_x_group_names.append('$x_{%d,%d,t}$' % (i+1,d+1));
-					count += 1;
-		print(count);
-		for d1 in range(self.D):
-			for d2 in range(d1,self.D):
-				for i in range(C):
-					Tc = self.Tcs[i];
-					if (i==0):
-						ts = range(Tc);
-					else:
-						ts = range(1, Tc-1);
-					for t in ts:
-						self.T_x_names.append('$x_{%d,%d,%d}$ $x_{%d,%d,%d}$' % (i+1, d1+1, t+1, i+1, d2+1, t+1));
-						self.T_x_names_tf.append('x_%d,%d,%d x_%d,%d,%d' % (i+1, d1+1, t+1, i+1, d2+1, t+1));
-						self.T_x_group_names.append('$x_{%d,%d,t}$ $x_{%d,%d,t}$' % (i+1, d1+1, i+1, d2+1));
-						count += 1;
 
-		for d in range(self.D):
-			for i in range(C):
-				for j in range(i+1, C):
-					self.T_x_names.append('$\sum_t x_{%d,%d,t}$ $x_{%d,%d,t}$' % (i+1, d+1, j+1, d+1));
-					self.T_x_names_tf.append('Sum_t x_%d,%d,t x_%d,%d,t' % (i+1, d+1, j+1, d+1));
-					self.T_x_group_names.append('$\sum_t x_{%d,%d,t}$ $x_{%d,%d,t}$' % (i+1, d+1, j+1, d+1));
-					count += 1;
+		set_T_x_S_names_E(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs);
+		set_T_x_D_names_E(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs);
 
-
-		print(count);
 		return None;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
@@ -2059,72 +1921,11 @@ class surrogate_S_D_C(family):
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
 		"""
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-
-		# compute the (S) suff stats
-		C = len(self.Tcs);
-		t_ind = 0;
-		T_x_Ss = [];
-		for i in range(C):
-			Tc = self.Tcs[i];
-			X_Tc = tf.slice(X, [0,0,0,t_ind], [K,M,self.D,Tc]);
-			t_ind = t_ind + Tc;
-			cov_con_mask_T = np.triu(np.ones((Tc,Tc), dtype=np.bool_), 1);
-			XXT_KMDTT = tf.matmul(tf.expand_dims(X_Tc, 4), tf.expand_dims(X_Tc, 3));
-			T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
-			if (i > 0):
-				T_x_S_KMDTcov = tf.concat((T_x_S_KMDTcov[:,:,:,:(Tc-2)], T_x_S_KMDTcov[:,:,:,(Tc-1):]), 3);
-				T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*int(Tc*(Tc-1)/2 - 1)]); # remove repeated endpoint correlation
-			else:
-				T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*int(Tc*(Tc-1)/2)]);
-			T_x_Ss.append(T_x_S_i);
-		T_x_S = tf.concat(T_x_Ss, 2);
-
+		T_x_S = compute_T_x_S_E(X, self.D, self.T_Cs);
 		X_no_EP = self.remove_extra_endpoints_tf(X);
-		T_no_EP = self.T - 2*(C-1);
-		# compute the (D) suff stats
-		cov_con_mask_D = np.triu(np.ones((self.D,self.D), dtype=np.bool_), 0);
-		T_x_mean = tf.reshape(X_no_EP, [K,M,self.D*T_no_EP]);
-
-		X_KMTD = tf.transpose(X_no_EP, [0, 1, 3, 2]); # samps x D
-		XXT_KMTDD = tf.matmul(tf.expand_dims(X_KMTD, 4), tf.expand_dims(X_KMTD, 3));
-		T_x_cov_KMDcovT = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMTDD, [3,4,0,1,2]), cov_con_mask_D), [1, 2, 0, 3]);
-		T_x_cov = tf.reshape(T_x_cov_KMDcovT, [K,M,int(self.D*(self.D+1)/2)*T_no_EP]);
-		T_x_D = tf.concat((T_x_mean, T_x_cov), axis=2);
-
-		# compute the (C) suff stats
-		Tc0 = self.Tcs[0];
-		cov_con_mask_C = np.triu(np.ones((C,C), dtype=np.bool_), 1);
-		T_x_cov_Cs = [];
-		for d in range(self.D):
-			X_d = X[:,:,d,:];
-			X_cs = []
-			t_ind = 0;
-			for i in range(C):
-				Tc = self.Tcs[i];
-				X_d_i = tf.slice(X_d, [0, 0, t_ind], [K, M, Tc0]);
-				X_cs.append(tf.expand_dims(X_d_i, 2));
-				t_ind = t_ind + Tc;
-			X_KMCT_d = tf.concat(X_cs, 2)
-			XXT_KMCC_d = tf.div(tf.matmul(X_KMCT_d, tf.transpose(X_KMCT_d, [0,1,3,2])), Tc0);
-			T_x_cov_KMCcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMCC_d, [2,3,0,1]), cov_con_mask_C), [1, 2, 0]);
-			T_x_cov_Cs.append(T_x_cov_KMCcov);
-		T_x_C = tf.concat(T_x_cov_Cs, 2);
-
-
-		print('T_x_S');
-		print(T_x_S.shape);
-		print('T_x_D');
-		print(T_x_D.shape);
-		print('T_x_C');
-		print(T_x_C.shape);
+		T_x_D = compute_T_x_D(X_no_EP, self.D, self.T);
 		# collect suff stats
-		T_x = tf.concat((T_x_S, T_x_D, T_x_C), axis=2);
-		print('T_x');
-		print(T_x.shape);
-
+		T_x = tf.concat((T_x_S, T_x_D), axis=2);
 		return T_x;
 
 	def compute_log_base_measure(self, X):
@@ -2137,67 +1938,26 @@ class surrogate_S_D_C(family):
 
 	def compute_mu(self, params):
 		# compute (S) part of mu
-		kernel = params['kernel'];
-		mu = params['mu'];
-		Sigma = params['Sigma'];
-		ts = params['ts'];
-		C = len(self.Tcs);
-		max_Tp = max(self.Tps);
-		mu_S_len = 0;
-		for i in range(C):
-			mu_S_len += int(self.Tcs[i]*(self.Tcs[i]-1)/2);
-			if (i > 0):
-				mu_S_len = mu_S_len - 1;
-
-		mu_S = np.zeros((self.D*mu_S_len,));
-		if (kernel == 'SE'): # squared exponential
-			taus = params['taus'];
-
-		ind = 0;
-		for i in range(C):
-			Tc = self.Tcs[i];
-			Tp = self.Tps[i];
-			ts_i = np.concatenate(ts[:(i+1)]);
-			ts_i = np.concatenate([np.array([0.0]), ts_i, np.array([Tp])]);
-			for d in range(self.D):
-				for t1 in range(Tc):
-					for t2 in range(t1+1,Tc):
-						if (i > 0 and t1==0 and t2==(Tc-1)):
-							continue;
-						mu_S[ind] = Sigma[i,i]*np.exp(-np.square(ts_i[t2]-ts_i[t1]) / (2*np.square(taus[i])));
-						ind = ind + 1;
-		# compute (D) part of mu
-		T_no_EP = self.T - 2*(C-1);
-		mu_mu = np.reshape(np.tile(mu, [1, T_no_EP]), [self.D*T_no_EP]);
-		mu_Sigma = np.zeros((int(self.D*(self.D+1)/2)),);
-		ind = 0;
-		for i in range(self.D):
-			for j in range(i,self.D):
-				mu_Sigma[ind] = Sigma[i,j] + mu[i]*mu[j];
-				ind += 1;
-		mu_Sigma = np.reshape(np.tile(np.expand_dims(mu_Sigma, 1), [1, T_no_EP]), [int(self.D*(self.D+1)/2)*T_no_EP]);
-
-		mu_D = np.concatenate((mu_mu, mu_Sigma), 0);
-
-		mu_C = params['mu_C'];
+		mu_S = compute_mu_S_E(params, self.D, self.Tps, self.T_Cs);
+		mu_D = compute_mu_D(params, self.D, self.T)
 		
-		mu = np.concatenate((mu_S, mu_D, mu_C), 0);
+		mu = np.concatenate((mu_S, mu_D), 0);
 		return mu;
 
 	def remove_extra_endpoints_tf(self, X):
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
-		C = len(self.Tcs);
+		C = len(self.T_Cs);
 		Xs = [];
 		t_ind = 0;
 		for i in range(C):
-			Tc = self.Tcs[i];
+			T_C_i = self.T_Cs[i];
 			if (i==0):
-				X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, Tc]);
+				X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, T_C_i]);
 			else:
-				X_i = tf.slice(X, [0, 0, 0, t_ind+1], [K, M, self.D, Tc-2]);
-			t_ind = t_ind + Tc;
+				X_i = tf.slice(X, [0, 0, 0, t_ind+1], [K, M, self.D, T_C_i-2]);
+			t_ind = t_ind + T_C_i;
 			Xs.append(X_i);
 		X_no_EP = tf.concat(Xs, 3);
 		return X_no_EP;
@@ -2225,7 +1985,6 @@ class GP_Dirichlet(family):
 		self.D = D;
 		self.T = T;
 		self.D_Z = D - 1;
-		self.realT = T;
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = False;
 		self.has_log_p = False;
@@ -2255,18 +2014,8 @@ class GP_Dirichlet(family):
 		self.T_x_names_tf = [];
 		self.T_x_group_names = [];
 
-		for d in range(self.D):
-			for t1 in range(self.T):
-				for t2 in range(t1+1,self.T):
-					self.T_x_names.append('$x_{%d,%d}$ $x_{%d,%d}$' % (d+1, t1+1, d+1, t2+1));
-					self.T_x_names_tf.append('x_%d,%d x_%d,%d' % (d+1, t1+1, d+1, t2+1));
-					self.T_x_group_names.append('$x_{%d,t}$ $x_{%d,t+%d}$' % (d+1, d+1, int(abs(t2-t1))));
-
-		for i in range(self.D):
-			for t in range(self.T):
-				self.T_x_names.append('$\log x_{%d,%d}$' % (i+1, t+1));
-				self.T_x_names_tf.append('\log x_%d,%d' % (i+1, t+1));
-				self.T_x_group_names.append('$\log x_{%d,t}$' % (i+1));
+		set_T_x_S_names(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T);
+		set_T_x_Dirich_names(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T);
 
 		return None;
 
@@ -2281,32 +2030,10 @@ class GP_Dirichlet(family):
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
 		"""
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		T = X_shape[3];
-		_T = tf.cast(T, tf.int32);
-		# compute the (S) suff stats
-		#cov_con_mask_T = np.triu(np.ones((T,T), dtype=np.bool_), 1);
-		ones_mat = tf.ones((T, T));
-		mask_T = tf.matrix_band_part(ones_mat, 0, -1) - tf.matrix_band_part(ones_mat, 0, 0)
-		cov_con_mask_T = tf.cast(mask_T, dtype=tf.bool);
-		XXT_KMDTT = tf.matmul(tf.expand_dims(X, 4), tf.expand_dims(X, 3));
-		T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
-		T_x_S = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*tf.cast(T*(T-1)/2, tf.int32)]);
-
-		# compute the (D) suff stats
-		log_X = tf.log(X);
-		T_x_D = tf.reshape(log_X, [K, M, self.D*T]);
-
-		print('T_x_S');
-		print(T_x_S.shape);
-		print('T_x_D');
-		print(T_x_D.shape);
+		T_x_S = compute_T_x_S(X, self.D, self.T);
+		T_x_D = compute_T_x_Dirich(X, self.D, self.T);
 		# collect suff stats
 		T_x = tf.concat((T_x_S, T_x_D), axis=2);
-		print('T_x');
-		print(T_x.shape);
 
 		return T_x;
 
@@ -2344,7 +2071,8 @@ class GP_Dirichlet(family):
 
 		for i in range(self.D):
 			if (kernel == 'SE'):
-				mu_S[(i*autocov_dim):((i+1)*autocov_dim)] = var[i]*np.exp(-np.square(ds) / (2*np.square(taus[i]))) + np.square(mean[i]);
+				mu_S[(i*autocov_dim):((i+1)*autocov_dim)] = \
+				        var[i]*np.exp(-np.square(ds) / (2*np.square(taus[i]))) + np.square(mean[i]);
 		
 		# compute (D) part of mu		
 		phi_0 = psi(alpha_0);
@@ -2371,8 +2099,9 @@ class GP_Dirichlet(family):
 		layers.append(support_layer);
 		return layers, num_theta_params;
 
-class GP_Dirichlet_C(family):
-	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
+class GP_E_Dirichlet(family):
+	"""Maximum entropy distribution with smoothness (GP), endpoints (EP) 
+	   and expected log constraints (Dirichlet)
 
 	Attributes:
 		D (int): dimensionality of the exponential family
@@ -2383,37 +2112,27 @@ class GP_Dirichlet_C(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T, Tps, Tcs):
+	def __init__(self, D, T, Tps, T_Cs):
 		"""multivariate_normal family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'GP_Dirichlet_C';
+		self.name = 'GP_E_Dirichlet';
 		self.D = D;
-		self.realT = T;
+		self.T = T
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = False;
 		self.has_log_p = False;
-		self.T = T
 		self.D_Z = D-1;
 
-		C = len(Tcs);
-		mu_S_len = 0.0
-		for i in range(C):
-			mu_S_len += int(Tcs[i]*(Tcs[i]-1)/2);
-			if (i > 0):
-				mu_S_len = mu_S_len - 1;
-		mu_S_len = self.D*mu_S_len;
-
-		T_no_EP = T;
-		mu_D_len = D*T_no_EP;
+		mu_S_len = compute_mu_S_len(T_Cs);
+		mu_D_len = D*T;
 		
-		self.C = C;
 		self.num_suff_stats = int(mu_S_len + mu_D_len);
 		self.Tps = Tps;
-		self.Tcs = Tcs;
+		self.T_Cs = T_Cs;
 		self.set_T_x_names();
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
@@ -2438,35 +2157,10 @@ class GP_Dirichlet_C(family):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
 		self.T_x_group_names = [];
-		C = len(self.Tcs);
-		count = 0;
-		for i in range(C):
-			Tc = self.Tcs[i];
-			for d in range(self.D):
-				for t1 in range(Tc):
-					for t2 in range(t1+1,Tc):
-						if (i > 0 and t1==0 and t2==(Tc-1)):
-							continue;
-						self.T_x_names.append('$x_{%d,%d,%d}$ $x_{%d,%d,%d}$' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
-						self.T_x_names_tf.append('x_%d,%d,%d x_%d,%d,%d' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
-						self.T_x_group_names.append('$x_{c=%d,%d,t}$ $x_{%d,%d,t+%d}$' % (i+1, d+1, i+1, d+1, int(abs(t2-t1))));
-						count += 1;
-		print(count);
-		prev_count = count;
-		for d in range(self.D):
-			for i in range(C):
-				Tc = self.Tcs[i];
-				if (i==0):
-					ts = range(Tc);
-				else:
-					ts = range(1, Tc-1);
-				for t in ts:
-					self.T_x_names.append('$\log x_{%d,%d,%d}$' % (i+1,d+1, t+1));
-					self.T_x_names_tf.append('\log x_%d,%d,%d' % (i+1,d+1, t+1));
-					self.T_x_group_names.append('$\log x_{c=%d,%d,t}$' % (i+1,d+1));
-					count += 1;
-
-		print(count-prev_count);
+		
+		set_T_x_S_names_E(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs);
+		set_T_x_Dirich_names_E(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs);
+		
 		return None;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
@@ -2484,40 +2178,12 @@ class GP_Dirichlet_C(family):
 		K = X_shape[0];
 		M = X_shape[1];
 
-		# compute the (S) suff stats
-		C = len(self.Tcs);
-		t_ind = 0;
-		T_x_Ss = [];
-		for i in range(C):
-			Tc = self.Tcs[i];
-			X_Tc = tf.slice(X, [0,0,0,t_ind], [K,M,self.D,Tc]);
-			t_ind = t_ind + Tc;
-			cov_con_mask_T = np.triu(np.ones((Tc,Tc), dtype=np.bool_), 1);
-			XXT_KMDTT = tf.matmul(tf.expand_dims(X_Tc, 4), tf.expand_dims(X_Tc, 3));
-			T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
-			if (i > 0):
-				T_x_S_KMDTcov = tf.concat((T_x_S_KMDTcov[:,:,:,:(Tc-2)], T_x_S_KMDTcov[:,:,:,(Tc-1):]), 3);
-				T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*int(Tc*(Tc-1)/2 - 1)]); # remove repeated endpoint correlation
-			else:
-				T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, self.D*int(Tc*(Tc-1)/2)]);
-			T_x_Ss.append(T_x_S_i);
-		T_x_S = tf.concat(T_x_Ss, 2);
-
+		T_x_S = compute_T_x_S_E(X, self.D, self.T_Cs);
 		X_no_EP = self.remove_extra_endpoints_tf(X);
-		T_no_EP = self.T;
+		T_x_D = compute_T_x_Dirich(X_no_EP, self.D, self.T);
 
-		# compute the (D) suff stats
-		cov_con_mask_D = np.triu(np.ones((self.D,self.D), dtype=np.bool_), 0);
-		T_x_D = tf.reshape(tf.log(X_no_EP), [K,M,self.D*T_no_EP]);
-
-		print('T_x_S');
-		print(T_x_S.shape);
-		print('T_x_D');
-		print(T_x_D.shape);
 		# collect suff stats
 		T_x = tf.concat((T_x_S, T_x_D), axis=2);
-		print('T_x');
-		print(T_x.shape);
 
 		return T_x;
 
@@ -2540,11 +2206,11 @@ class GP_Dirichlet_C(family):
 		var = np.multiply(alpha, alpha_0 - alpha) / (np.square(alpha_0)*(alpha_0+1));
 
 		ts = params['ts'];
-		C = len(self.Tcs);
+		C = len(self.T_Cs);
 		max_Tp = max(self.Tps);
 		mu_S_len = 0;
 		for i in range(C):
-			mu_S_len += int(self.Tcs[i]*(self.Tcs[i]-1)/2);
+			mu_S_len += int(self.T_Cs[i]*(self.T_Cs[i]-1)/2);
 			if (i > 0):
 				mu_S_len = mu_S_len - 1;
 
@@ -2554,13 +2220,13 @@ class GP_Dirichlet_C(family):
 
 		ind = 0;
 		for i in range(C):
-			Tc = self.Tcs[i];
+			T_C_i = self.T_Cs[i];
 			Tp = self.Tps[i];
 			ts_i = np.concatenate([np.array([0.0]), ts, np.array([Tp])]);
 			for d in range(self.D):
-				for t1 in range(Tc):
-					for t2 in range(t1+1,Tc):
-						if (i > 0 and t1==0 and t2==(Tc-1)):
+				for t1 in range(T_C_i):
+					for t2 in range(t1+1,T_C_i):
+						if (i > 0 and t1==0 and t2==(T_C_i-1)):
 							continue;
 						mu_S[ind] = var[d]*np.exp(-np.square(ts_i[t2]-ts_i[t1]) / (2*np.square(taus[d]))) + np.square(mean[d]);
 						ind = ind + 1;
@@ -2580,16 +2246,16 @@ class GP_Dirichlet_C(family):
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
-		C = len(self.Tcs);
+		C = len(self.T_Cs);
 		Xs = [];
 		t_ind = 0;
 		for i in range(C):
-			Tc = self.Tcs[i];
+			T_C_i = self.T_Cs[i];
 			if (i==0):
-				X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, Tc]);
+				X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, T_C_i]);
 			else:
-				X_i = tf.slice(X, [0, 0, 0, t_ind+1], [K, M, self.D, Tc-2]);
-			t_ind = t_ind + Tc;
+				X_i = tf.slice(X, [0, 0, 0, t_ind+1], [K, M, self.D, T_C_i-2]);
+			t_ind = t_ind + T_C_i;
 			Xs.append(X_i);
 		X_no_EP = tf.concat(Xs, 3);
 		return X_no_EP;
@@ -2609,3 +2275,254 @@ class GP_Dirichlet_C(family):
 		num_theta_params += count_layer_params(support_layer);
 		layers.append(support_layer);
 		return layers, num_theta_params;
+
+
+def compute_mu_S_len(D, T_Cs):
+	C = len(T_Cs);
+	mu_S_len = 0.0
+	for i in range(C):
+		mu_S_len += int(T_Cs[i]*(T_Cs[i]-1)/2);
+		if (i > 0):
+			mu_S_len = mu_S_len - 1;
+	mu_S_len = D*mu_S_len;
+	return int(mu_S_len);
+
+def set_T_x_S_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+	# autocovariance by dimension E[x_cda x_cdb]
+	for d in range(D):
+		for t1 in range(T):
+			for t2 in range(t1+1,T):
+				T_x_names.append('$x_{%d,%d}$ $x_{%d,%d}$' % (d+1, t1+1, d+1, t2+1));
+				T_x_names_tf.append('x_%d,%d x_%d,%d' % (d+1, t1+1, d+1, t2+1));
+				T_x_group_names.append('$x_{%d,t}$ $x_{%d,t+%d}$' % (d+1, d+1, int(abs(t2-t1))));
+	return None;
+
+def set_T_x_D_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+	# mean E[x_dt]
+	for i in range(D):
+		for t in range(T):
+			T_x_names.append('$x_{%d,%d}$' % (i+1, t+1));
+			T_x_names_tf.append('x_%d,%d' % (i+1, t+1));
+			T_x_group_names.append('$x_{%d,t}$' % (i+1));
+
+	# time-invariant covariance E[x_at x_bt]
+	for i in range(D):
+		for j in range(i,D):
+			for t in range(T):
+				T_x_names.append('$x_{%d,%d}$ $x_{%d,%d}$' % (i+1, t+1, j+1, t+1));
+				T_x_names_tf.append('x_%d,%d x_%d,%d' % (i+1, t+1, j+1, t+1));
+				T_x_group_names.append('$x_{%d,t}$ $x_{%d,t}$' % (i+1, j+1));
+	return None;
+
+def set_T_x_Dirich_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+	# time-invariant expected log constraints
+	for i in range(D):
+		for t in range(T):
+			T_x_names.append('$\log x_{%d,%d}$' % (i+1, t+1));
+			T_x_names_tf.append('\log x_%d,%d' % (i+1, t+1));
+			T_x_group_names.append('$\log x_{%d,t}$' % (i+1));
+	return None;
+
+def set_T_x_S_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+	# mindful of endpoints across conditions
+	# autocovariance by dimension E[x_cda x_cdb]
+	C = len(T_Cs);
+	for i in range(C):
+		T_C_i = T_Cs[i];
+		for d in range(D):
+			for t1 in range(T_C_i):
+				for t2 in range(t1+1,T_C_i):
+					if (i > 0 and t1==0 and t2==(T_C_i-1)):
+						continue;
+					T_x_names.append('$x_{%d,%d,%d}$ $x_{%d,%d,%d}$' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
+					T_x_names_tf.append('x_%d,%d,%d x_%d,%d,%d' % (i+1, d+1, t1+1, i+1, d+1, t2+1));
+					T_x_group_names.append('$x_{%d,%d,t}$ $x_{%d,%d,t+%d}$' % (i+1, d+1, i+1, d+1, int(abs(t2-t1))));
+	return None;
+
+def set_T_x_D_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+	# mindful of endpoints across conditions
+	C = len(T_Cs);
+	# mean E[x_cdt]
+	for d in range(D):
+		for i in range(C):
+			T_C_i = T_Cs[i];
+			if (i==0):
+				ts = range(T_C_i);
+			else:
+				ts = range(1, T_C_i-1);
+			for t in ts:
+				T_x_names.append('$x_{%d,%d,%d}$' % (i+1,d+1, t+1));
+				T_x_names_tf.append('x_%d,%d,%d' % (i+1,d+1, t+1));
+				T_x_group_names.append('$x_{%d,%d,t}$' % (i+1,d+1));
+
+	# time-invariant covariance E[x_cat x_cbt]
+	for d1 in range(D):
+		for d2 in range(d1,D):
+			for i in range(C):
+				T_C_i = T_Cs[i];
+				if (i==0):
+					ts = range(T_C_i);
+				else:
+					ts = range(1, T_C_i-1);
+				for t in ts:
+					T_x_names.append('$x_{%d,%d,%d}$ $x_{%d,%d,%d}$' % (i+1, d1+1, t+1, i+1, d2+1, t+1));
+					T_x_names_tf.append('x_%d,%d,%d x_%d,%d,%d' % (i+1, d1+1, t+1, i+1, d2+1, t+1));
+					T_x_group_names.append('$x_{%d,%d,t}$ $x_{%d,%d,t}$' % (i+1, d1+1, i+1, d2+1));
+	return None;
+
+def set_T_x_Dirich_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+	# mindful of endpoints across conditions
+	# time-invariant expected log constraints
+	C = len(T_Cs);
+	for d in range(D):
+		for i in range(C):
+			T_C_i = T_Cs[i];
+			if (i==0): 
+				ts = range(T_C_i);
+			else:
+				ts = range(1, T_C_i-1);
+			for t in ts:
+				T_x_names.append('$\log x_{%d,%d,%d}$' % (i+1,d+1, t+1));
+				T_x_names_tf.append('\log x_%d,%d,%d' % (i+1,d+1, t+1));
+				T_x_group_names.append('$\log x_{c=%d,%d,t}$' % (i+1,d+1));
+
+	return None;
+
+def compute_T_x_S(X, D, T):
+	X_shape = tf.shape(X);
+	K = X_shape[0];
+	M = X_shape[1];
+	# compute the (S) suff stats
+	ones_mat = tf.ones((T, T));
+	mask_T = tf.matrix_band_part(ones_mat, 0, -1) - tf.matrix_band_part(ones_mat, 0, 0)
+	cov_con_mask_T = tf.cast(mask_T, dtype=tf.bool);
+	XXT_KMDTT = tf.matmul(tf.expand_dims(X, 4), tf.expand_dims(X, 3));
+	T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
+	T_x_S = tf.reshape(T_x_S_KMDTcov, [K, M, D*tf.cast(T*(T-1)/2, tf.int32)]);
+	return T_x_S;
+
+def compute_T_x_Dirich(X, D, T):
+	X_shape = tf.shape(X);
+	K = X_shape[0];
+	M = X_shape[1];
+	# compute the (D) suff stats
+	T_x_D = tf.reshape(tf.log(X), [K,M,D*T]);
+	return T_x_D;
+
+def compute_T_x_D(X, D, T):
+	X_shape = tf.shape(X);
+	K = X_shape[0];
+	M = X_shape[1];
+	# compute the (D) suff stats
+	cov_con_mask_D = np.triu(np.ones((D,D), dtype=np.bool_), 0);
+	T_x_mean = tf.reshape(X, [K,M,D*T]);
+
+	X_KMTD = tf.transpose(X, [0, 1, 3, 2]); # samps x D
+	XXT_KMTDD = tf.matmul(tf.expand_dims(X_KMTD, 4), tf.expand_dims(X_KMTD, 3));
+	T_x_cov_KMDcovT = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMTDD, [3,4,0,1,2]), cov_con_mask_D), [1, 2, 0, 3]);
+	T_x_cov = tf.reshape(T_x_cov_KMDcovT, [K,M,int(D*(D+1)/2)*T]);
+	T_x_D = tf.concat((T_x_mean, T_x_cov), axis=2);
+	return T_x_D;
+
+def compute_T_x_S_E(X, D, T_Cs):
+	# compute the (S) suff stats
+	X_shape = tf.shape(X);
+	K = X_shape[0];
+	M = X_shape[1];
+	C = len(T_Cs);
+	t_ind = 0;
+	T_x_Ss = [];
+	for i in range(C):
+		T_C_i = T_Cs[i];
+		X_Tci = tf.slice(X, [0,0,0,t_ind], [K,M,D,T_C_i]);
+		t_ind = t_ind + T_C_i;
+		cov_con_mask_T = np.triu(np.ones((T_C_i,T_C_i), dtype=np.bool_), 1);
+		XXT_KMDTT = tf.matmul(tf.expand_dims(X_Tci, 4), tf.expand_dims(X_Tci, 3));
+		T_x_S_KMDTcov = tf.transpose(tf.boolean_mask(tf.transpose(XXT_KMDTT, [3,4,0,1,2]), cov_con_mask_T), [1, 2, 3, 0])
+		if (i > 0):
+			T_x_S_KMDTcov = tf.concat((T_x_S_KMDTcov[:,:,:,:(T_C_i-2)], T_x_S_KMDTcov[:,:,:,(T_C_i-1):]), 3);
+			T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, D*int(T_C_i*(T_C_i-1)/2 - 1)]); # remove repeated endpoint correlation
+		else:
+			T_x_S_i = tf.reshape(T_x_S_KMDTcov, [K, M, D*int(T_C_i*(T_C_i-1)/2)]);
+		T_x_Ss.append(T_x_S_i);
+	T_x_S = tf.concat(T_x_Ss, 2);
+	return T_x_S;
+
+
+def compute_mu_S(params, D, T):
+	kernel = params['kernel'];
+	mu = params['mu_D'];
+	Sigma = params['Sigma_D'];
+	ts = params['ts'];
+	autocov_dim = int(T*(T-1)/2);
+	mu_S = np.zeros((int(D*autocov_dim),));
+	autocovs = np.zeros((D, T));
+	if (kernel == 'SE'): # squared exponential
+		taus = params['taus'];
+
+	ind = 0;
+	ds = np.zeros((autocov_dim,));
+	for t1 in range(T):
+		for t2 in range(t1+1, T):
+			ds[ind] = ts[t2] - ts[t1];
+			ind += 1;
+
+	for i in range(D):
+		if (kernel == 'SE'):
+			mu_S[(i*autocov_dim):((i+1)*autocov_dim)] = \
+			         Sigma[i,i]*np.exp(-np.square(ds) / (2*np.square(taus[i]))) + np.square(mu[i]);
+	return mu_S;
+
+
+def compute_mu_S_E(params, D, Tps, T_Cs):
+	def parse_ts(ts, i):
+		_ts = [];
+		for i in range(i+1):
+			if (ts[i].size > 0):
+				_ts.append(ts[i]);
+		return _ts;
+
+	mu = params['mu_D'];
+	Sigma = params['Sigma_D'];
+	kernel = params['kernel'];
+	ts = params['ts'];
+	if (kernel == 'SE'): # squared exponential
+		taus = params['taus'];
+
+	mu_S_len = compute_mu_S_len(D, T_Cs);
+	mu_S = np.zeros((mu_S_len,));
+
+	ind = 0;
+	C = len(T_Cs);
+	for i in range(C):
+		T_C_i = T_Cs[i];
+		Tp = Tps[i];
+		ts_i = np.concatenate(parse_ts(ts, i));
+		ts_i = np.concatenate([np.array([0.0]), ts_i, np.array([Tp])]);
+		for d in range(D):
+			for t1 in range(T_C_i):
+				for t2 in range(t1+1,T_C_i):
+					if (i > 0 and t1==0 and t2==(T_C_i-1)):
+						continue;
+					mu_S[ind] = Sigma[d,d]*np.exp(-np.square(ts_i[t2]-ts_i[t1]) / (2*np.square(taus[d]))) + np.square(mu[d]);
+					ind = ind + 1;
+	return mu_S;
+
+def compute_mu_D(params, D, T):
+	mu = params['mu_D'];
+	Sigma = params['Sigma_D'];
+	# compute (D) part of mu
+	mu_mu = np.reshape(np.tile(mu, [1, T]), [D*T]);
+	mu_Sigma = np.zeros((int(D*(D+1)/2)),);
+	ind = 0;
+	for i in range(D):
+		for j in range(i,D):
+			mu_Sigma[ind] = Sigma[i,j] + mu[i]*mu[j];
+			ind += 1;
+	mu_Sigma = np.reshape(np.tile(np.expand_dims(mu_Sigma, 1), [1, T]), [int(D*(D+1)/2)*T]);
+
+	mu_D = np.concatenate((mu_mu, mu_Sigma), 0);
+
+	return mu_D;
+
+
