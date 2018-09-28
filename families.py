@@ -391,7 +391,7 @@ class multivariate_normal(family):
 
 	def default_eta_dist(self,):
 		dist = {'family':'iso_mvn_and_iso_iw', \
-		                  'mu':np.zeros((self.D,)), 'scale':1.0, \
+		                  'mu':np.zeros((self.D,)), 'scale':0.1, \
 		                  'df_fac':5};
 		return dist;
 
