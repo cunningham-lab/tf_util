@@ -835,11 +835,10 @@ class inv_wishart(family):
 		# We already have the Chol factor from earlier in the graph
 		#zchol = Z_by_layer[-2];
 		#zchol_KMD_Z = zchol[:,:,:,0]; # generalize this for more time points
-		zchol_KMsqrtDsqrtD = tf.linalg.cholesky(X_KMDsqrtDsqrtD);
+		X_eigs = tf.self_adjoint_eigvals(X_KMDsqrtDsqrtD);
 		#zchol_KMD = tf.transpose(tf.boolean_mask(tf.transpose(zchol_KMsqrtDsqrtD, [2,3,0,1]), chol_mask), [1, 2, 0]);
-		zchol_diag = tf.linalg.diag_part(zchol_KMsqrtDsqrtD);
 
-		T_x_log_det = 2*tf.reduce_sum(tf.log(zchol_diag), 2);
+		T_x_log_det = 2*tf.reduce_sum(tf.log(X_eigs), 2);
 		T_x_log_det = tf.expand_dims(T_x_log_det, 2);
 		T_x = tf.concat((T_x_inv, T_x_log_det), axis=2);
 		return T_x;
