@@ -194,8 +194,9 @@ class CholProdLayer(Layer):
         L_pos_diag = tf.contrib.distributions.matrix_diag_transform(L, tf.exp);
         LLT = tf.matmul(L_pos_diag, tf.transpose(L_pos_diag, [0,1,3,2]));
         #give it a lil boost
-        #diag_boost = 10*p_eps*tf.eye(sqrtD, batch_shape=[K,M], dtype=tf.float64);
-        #LLT = LLT + diag_boost;
+        p_eps = 1e-4;
+        diag_boost = p_eps*tf.eye(sqrtD, batch_shape=[K,M,1,1], dtype=tf.float64);
+        LLT = LLT + diag_boost;
         LLT_vec = tf.reshape(LLT, [K,M,D]);
         z = tf.expand_dims(LLT_vec, 3); # update this for T > 1
         
