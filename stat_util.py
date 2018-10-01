@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import invwishart, dirichlet, multivariate_normal
+from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 from cvxopt import spmatrix, amd
 import chompack as cp
 from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
@@ -10,7 +10,11 @@ def get_sampler_func(dist, D):
     if (dist is None):
         return None;
 
-    if (dist['family'] == 'uniform'):
+    if (dist['family'] == 'delta'):
+        a = dist['a'];
+        return lambda : a;
+
+    elif (dist['family'] == 'uniform'):
         a = dist['a'];
         b = dist['b'];
         return lambda : np.random.uniform(a,b,(D,));
@@ -45,6 +49,18 @@ def get_sampler_func(dist, D):
         dist = {'family':'truncated_normal', 'mu':mu, 'Sigma':Sigma};
         return get_sampler_func(dist, D);
 
+    elif (dist['family'] == 'dirichlet'):
+        x_eps = 1e-16;
+        alpha = dist['alpha'];
+        dir_dist = dirichlet(alpha);
+        def _sampler():
+            x = dir_dist.rvs(1)[0]
+            x = (x+x_eps);
+            x = x / np.sum(x);
+            print(x);
+            return x;
+        return _sampler;
+
     elif (dist['family'] == 'inv_wishart'):
         df = dist['df'];
         Psi = dist['Psi'];
@@ -78,8 +94,52 @@ def get_sampler_func(dist, D):
         iso_iw_sampler = get_sampler_func(dist_iso_iw, dist['iw_dim']);
         return lambda : (ui_sampler(), iso_iw_sampler());
 
+    elif (dist['family'] == 'dir_delt'):
+        alpha = dist['alpha'];
+        dist_dir = {'family':'dirichlet', 'alpha':alpha};
+        dir_sampler = get_sampler_func(dist_dir, D);
+        a = dist['a'];
+        dist_delt = {'family':'delta', 'a':a};
+        delt_sampler = get_sampler_func(dist_delt, D);
+        return lambda : (dir_sampler(), delt_sampler());
+
+    elif (dist['family'] == 'u_delt'):
+        a = dist['a_uniform'];
+        b = dist['b'];
+        dist_u = {'family':'uniform', 'a':a, 'b':b};
+        u_sampler = get_sampler_func(dist_u, D);
+        a = dist['a_delta'];
+        dist_delt = {'family':'delta', 'a':a};
+        delt_sampler = get_sampler_func(dist_delt, D);
+        return lambda : (u_sampler(), delt_sampler());
+
+
+def get_posterior_sampler_func(dist, D):
+    if (dist is None):
+        return None;
+
+    if (dist['family'] == 'dir_mult'):
+        a_uniform = dist['a_uniform'];
+        b = dist['b'];
+        a_delta = dist['a_delta'];
+        u_delt_dist = {'family':'u_delt', 'a_uniform':a_uniform, 'b':b, 'a_delta':a_delta};
+        u_delt_sampler = get_sampler_func(u_delt_dist, D);
+        def _sampler():
+            alpha, N = u_delt_sampler();
+            dir_dist = {'family':'dirichlet', 'alpha':alpha};
+            dir_sampler = get_sampler_func(dir_dist, D);
+            mult_dist = multinomial(N, dir_sampler());
+            return alpha, mult_dist.rvs(1);
+        return _sampler;
+
+
 def get_density_func(dist, D):
-    if (dist['family'] == 'uniform'):
+
+    if (dist['family'] == 'delta'):
+        a = dist['a'];
+        return lambda x : 1.0 if (a==x) else 0.0;
+
+    elif (dist['family'] == 'uniform'):
         a = dist['a'];
         b = dist['b'];
         return lambda : np.power(1.0 / (b-a), D);
@@ -115,6 +175,11 @@ def get_density_func(dist, D):
         dist = {'family':'multivariate_normal', 'mu':mu, 'Sigma':Sigma};
         return get_density_func(dist, D);
 
+    elif (dist['family'] == 'dirichlet'):
+        alpha = dist['alpha'];
+        dir_dist = dirichlet(alpha);
+        return lambda x : dir_dist.pdf(x);
+
     elif (dist['family'] == 'inv_wishart'):
         df = dist['df'];
         Psi = dist['Psi'];
@@ -149,11 +214,35 @@ def get_density_func(dist, D):
         return lambda x, y : ui_pdf(x)*iso_iw_pdf(y);
 
 
+    elif (dist['family'] == 'dir_delt'):
+        alpha = dist['alpha'];
+        dist_dir = {'family':'dirichlet', 'alpha':alpha};
+        dir_pdf = get_density_func(dist_dir, D);
+        a = dist['a'];
+        dist_delt = {'family':'delta', 'a':a};
+        delt_pdf = get_density_func(dist_delt, D);
+        return lambda x, y: dir_pdf(x)*delt_pdf(y);
+
+    elif (dist['family'] == 'u_delt'):
+        a = dist['a_uniform'];
+        b = dist['b'];
+        dist_u = {'family':'uniform', 'a':a, 'b':b};
+        u_pdf = get_density_func(dist_u, D);
+        a = dist['a_delta'];
+        dist_delt = {'family':'delta', 'a':a};
+        delt_pdf = get_density_func(dist_delt, D);
+        return lambda x, y: u_pdf(x)*delt_pdf(y);
+
+
 def get_dist_str(dist):
     if (dist is None):
         return '';
 
-    if (dist['family'] == 'uniform'):
+    if (dist['family'] == 'delta'):
+        a = dist['a'];
+        return '_delt_%.1f' % a;
+
+    elif (dist['family'] == 'uniform'):
         a = dist['a'];
         b = dist['b'];
         return '_u_%.1fto%.1f' % (a,b);
@@ -183,6 +272,10 @@ def get_dist_str(dist):
         scale = dist['scale'];
         return '_itn_s=%.2f' % scale;
 
+    elif (dist['family'] == 'dirichlet'):
+        alpha = dist['alpha']; # not sure how to get a string here
+        return '_dir';
+
     elif (dist['family'] == 'inv_wishart'):
         df = dist['df'];
         Psi = dist['Psi'];
@@ -208,6 +301,16 @@ def get_dist_str(dist):
         df_fac = dist['df_fac'];
         dist_iso_iw = {'family':'isotropic_inv_wishart', 'df_fac':df_fac};
         return '%s%s' % (get_dist_str(dist_ui), get_dist_str(dist_iso_iw));
+
+    elif (dist['family'] == 'u_delt'):
+        a = dist['a_uniform'];
+        b = dist['b'];
+        dist_u = {'family':'uniform', 'a':a, 'b':b}
+        a = dist['a_delta'];
+        dist_delta = {'family':'delta', 'a':a};
+        return '%s%s' % (get_dist_str(dist_ui), get_dist_str(dist_iso_iw));
+
+
 
 def drawPoissonRates(D, ratelim):
     return np.random.uniform(0.1, ratelim, (D,));
