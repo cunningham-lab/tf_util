@@ -178,11 +178,12 @@ class SimplexBijectionLayer(Layer):
 
 
 class CholProdLayer(Layer):
-    def __init__(self, name='SimplexBijectionLayer'):
+    def __init__(self, name='SimplexBijectionLayer', diag_eps=1e-6):
         # TODO this entire class needs to be compatible with the parameter network
         self.name = name;
         self.param_names = [];
         self.param_network = False;
+        self.diag_eps = diag_eps;
 
     def forward_and_jacobian(self, z, sum_log_det_jacobians):
         K, M, D_Z, T = efn_tensor_shape(z);
@@ -194,8 +195,7 @@ class CholProdLayer(Layer):
         L_pos_diag = tf.contrib.distributions.matrix_diag_transform(L, tf.exp);
         LLT = tf.matmul(L_pos_diag, tf.transpose(L_pos_diag, [0,1,3,2]));
         #give it a lil boost
-        p_eps = 1e-4;
-        diag_boost = p_eps*tf.eye(sqrtD, batch_shape=[K,M], dtype=tf.float64);
+        diag_boost = self.diag_eps*tf.eye(sqrtD, batch_shape=[K,M], dtype=tf.float64);
         LLT = LLT + diag_boost;
         LLT_vec = tf.reshape(LLT, [K,M,D]);
         z = tf.expand_dims(LLT_vec, 3); # update this for T > 1

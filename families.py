@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import truncated_multivariate_normal_rvs, get_GP_Sigma, \
-                              drawPoissonCounts, get_sampler_func
+                              drawPoissonCounts, get_sampler_func, get_posterior_sampler_func
 from tf_util.tf_util import count_layer_params
 from tf_util.flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
 import scipy.stats
@@ -248,7 +248,18 @@ class posterior_family(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		super().__init__(D, T, eta_dist);
+
+		self.D = D;
+		self.T = T;
+		self.realT = T;
+		self.num_T_x_inputs = 0;
+		self.constant_base_measure = True;
+		self.has_log_p = False;
+		if (eta_dist is not None):
+			self.eta_dist = eta_dist;
+		else:
+			self.eta_dist = self.default_eta_dist();
+		self.eta_sampler = get_posterior_sampler_func(self.eta_dist, self.D);
 		self.D_Z = None;
 		self.num_prior_suff_stats = None;
 		self.num_likelihood_suff_stats = None;
@@ -690,9 +701,12 @@ class dirichlet(family):
 		"""
 		nonzero_simplex_eps = 1e-32;
 		alpha = params['alpha'];
+		print('alpha', alpha);
 		dist = scipy.stats.dirichlet(np.float64(alpha));
 		X = np.float64(X) + nonzero_simplex_eps;
 		X = X / np.expand_dims(np.sum(X, 1), 1);
+		print('X');
+		print(X);
 		log_p_x = dist.logpdf(X.T);
 		return log_p_x;
 
@@ -739,7 +753,7 @@ class inv_wishart(family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-	def __init__(self, D, T=1, eta_dist=None):
+	def __init__(self, D, T=1, eta_dist=None, diag_eps=1e-4):
 		"""inv_wishart family constructor
 
 		Args:
@@ -753,6 +767,7 @@ class inv_wishart(family):
 		self.D_Z = int(self.sqrtD*(self.sqrtD+1)/2)
 		self.num_suff_stats = self.D_Z + 1;
 		self.has_log_p = True;
+		self.diag_eps=1e-10;
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
 		"""Returns EFN component dimensionalities for the family.
@@ -812,17 +827,19 @@ class inv_wishart(family):
 		K = X_shape[0];
 		M = X_shape[1];
 		cov_con_mask = np.triu(np.ones((self.sqrtD,self.sqrtD), dtype=np.bool_), 0);
-		X = X[:,:,:,0]; # update for T > 1
+		chol_mask = np.tril(np.ones((self.sqrtD,self.sqrtD), dtype=np.bool_), 0);
+
 		X_KMDsqrtDsqrtD = tf.reshape(X, (K,M,self.sqrtD,self.sqrtD));
 		X_inv = tf.matrix_inverse(X_KMDsqrtDsqrtD);
 		T_x_inv = tf.transpose(tf.boolean_mask(tf.transpose(X_inv, [2,3,0,1]), cov_con_mask), [1, 2, 0]);
 		# We already have the Chol factor from earlier in the graph
-		zchol = Z_by_layer[-2];
-		zchol_KMD_Z = zchol[:,:,:,0]; # generalize this for more time points
-		L = tf.contrib.distributions.fill_triangular(zchol_KMD_Z);
-		L_pos_diag = tf.contrib.distributions.matrix_diag_transform(L, tf.exp)
-		L_pos_diag_els = tf.matrix_diag_part(L_pos_diag);
-		T_x_log_det = 2*tf.reduce_sum(tf.log(L_pos_diag_els), 2);
+		#zchol = Z_by_layer[-2];
+		#zchol_KMD_Z = zchol[:,:,:,0]; # generalize this for more time points
+		zchol_KMsqrtDsqrtD = tf.linalg.cholesky(X_KMDsqrtDsqrtD);
+		#zchol_KMD = tf.transpose(tf.boolean_mask(tf.transpose(zchol_KMsqrtDsqrtD, [2,3,0,1]), chol_mask), [1, 2, 0]);
+		zchol_diag = tf.linalg.diag_part(zchol_KMsqrtDsqrtD);
+
+		T_x_log_det = 2*tf.reduce_sum(tf.log(zchol_diag), 2);
 		T_x_log_det = tf.expand_dims(T_x_log_det, 2);
 		T_x = tf.concat((T_x_inv, T_x_log_det), axis=2);
 		return T_x;
@@ -1193,6 +1210,10 @@ class dirichlet_multinomial(posterior_family):
 		log_h_x = tf.zeros((K,M), dtype=tf.float64);
 		return log_h_x;
 
+	def default_eta_dist(self,):
+		dist = {'family':'dir_mult', 'a_uniform':0.5, 'b':5.0, 'a_delta':1};
+		return dist;
+
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
@@ -1202,14 +1223,8 @@ class dirichlet_multinomial(posterior_family):
 		x_eps = 1e-16;
 		params = [];
 		for k in range(K):
-			alpha_0_k = np.random.uniform(1.0, 10.0, (self.D,));
-			dist1 = scipy.stats.dirichlet(alpha_0_k);
-			z = dist1.rvs(1);
-			dist2 = scipy.stats.multinomial(1, z[0]);
-			x = dist2.rvs(N).T;
-			x = (x+x_eps);
-			x = x / np.expand_dims(np.sum(x, 0), 0);
-			params_k = {'alpha_0':alpha_0_k, 'x':x, 'z':z, 'N':N};
+			alpha_0_k, x_k = self.eta_sampler();
+			params_k = {'alpha_0':alpha_0_k, 'x':x_k};
 			params.append(params_k);
 			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, False);
 			T_x_input[k,:] = self.mu_to_T_x_input(params_k);
@@ -1233,13 +1248,12 @@ class dirichlet_multinomial(posterior_family):
 			raise NotImplementedError();
 		alpha_0 = params['alpha_0'];
 		x = params['x'];
-		N = params['N'];
-		assert(N == x.shape[1]);
+		N = np.sum(x);
 
 		log_Beta_alpha_0 = np.array([np.sum(gammaln(alpha_0)) - gammaln(np.sum(alpha_0))]);
 
 		eta_from_prior = np.concatenate((alpha_0-1.0, log_Beta_alpha_0), 0);
-		eta_from_likelihood = np.concatenate((x[:,0], -np.array([N])), 0);
+		eta_from_likelihood = np.concatenate((x[0,:], -np.array([N])), 0);
 		eta = np.concatenate((eta_from_prior, eta_from_likelihood), 0);
 
 		if (param_net_input_type == 'eta'):
