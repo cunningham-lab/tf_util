@@ -10,29 +10,29 @@ import scipy.io as sio
 from itertools import compress
 
 def family_from_str(exp_fam_str):
-	if (exp_fam_str in ['normal', 'multivariate_normal']):
-		return multivariate_normal;
-	elif (exp_fam_str in ['dirichlet']):
-		return dirichlet;
-	elif (exp_fam_str in ['inv_wishart']):
-		return inv_wishart;
-	elif (exp_fam_str in ['hierarchical_dirichlet', 'dir_dir']):
-		return hierarchical_dirichlet;
-	elif (exp_fam_str in ['dirichlet_multinomial', 'dir_mult']):
-		return dirichlet_multinomial;
-	elif (exp_fam_str in ['truncated_normal_poisson', 'prp_tn', 'tnp']):
-		return truncated_normal_poisson;
-	elif (exp_fam_str in ['log_gaussian_cox', 'lgc']):
-		return log_gaussian_cox;
+	if (exp_fam_str in ['MultivariateNormal', 'normal', 'multivariate_normal']):
+		return MultivariateNormal;
+	elif (exp_fam_str in ['Dirichlet', 'dirichlet']):
+		return Dirichlet;
+	elif (exp_fam_str in ['InvWishart', 'inv_wishart']):
+		return InvWishart;
+	elif (exp_fam_str in ['HierarchicalDirichlet', 'hierarchical_dirichlet', 'dir_dir']):
+		return HierarchicalDirichlet;
+	elif (exp_fam_str in ['DirichletMultinomial', 'dirichlet_multinomial', 'dir_mult']):
+		return DirichletMultinomial;
+	elif (exp_fam_str in ['TruncatedNormalPoission', 'truncated_normal_poisson', 'tnp']):
+		return TruncatedNormalPoisson;
+	elif (exp_fam_str in ['LogGaussianCox', 'log_gaussian_cox', 'lgc']):
+		return LogGaussianCox;
 
-	elif (exp_fam_str in ['S_D', 'D_S']):
-		return surrogate_S_D;
-	elif (exp_fam_str in ['S_E_D']):
-		return surrogate_S_E_D;
-	elif (exp_fam_str in ['GP_Dirichlet']):
-		return GP_Dirichlet;
-	elif (exp_fam_str in ['GP_E_Dirichlet']):
-		return GP_E_Dirichlet;
+	elif (exp_fam_str in ['SD']):
+		return surrogateSD;
+	elif (exp_fam_str in ['SED']):
+		return surrogateSED;
+	elif (exp_fam_str in ['GPDirichlet']):
+		return GPDirichlet;
+	elif (exp_fam_str in ['GPEDirichlet']):
+		return GPEDirichlet;
 
 def autocov_tf(X, tau_max, T):
     # need to finish this
@@ -55,7 +55,7 @@ def autocov_tf(X, tau_max, T):
     print(autocov);
     return autocov;
 
-class family:
+class Family:
 	"""Base class for exponential families.
 	
 	Exponential families differ in their sufficient statistics, base measures,
@@ -70,7 +70,7 @@ class family:
 	"""
 
 	def __init__(self, D, T=1, eta_dist=None):
-		"""family constructor
+		"""Family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
@@ -222,7 +222,7 @@ class family:
 			print('%.2E' % approxH);
 		return None;
 
-class posterior_family(family):
+class PosteriorFamily(Family):
 	"""Base class for posterior-inference exponential families.
 	
 	When the likelihood of a bayesian model has exoponential family form and is
@@ -294,7 +294,7 @@ class posterior_family(family):
 			num_param_net_inputs = self.D;
 		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
-class multivariate_normal(family):
+class MultivariateNormal(Family):
 	"""Multivariate normal family.
 
 	Attributes:
@@ -307,14 +307,14 @@ class multivariate_normal(family):
 	"""
 
 	def __init__(self, D, T=1, eta_dist=None):
-		"""multivariate_normal family constructor
+		"""Multivariate normal family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
 		super().__init__(D, T, eta_dist);
-		self.name = 'normal';
+		self.name = 'MultivariateNormal';
 		self.D_Z = D;
 		self.num_suff_stats = int(D+D*(D+1)/2);
 		self.has_log_p = True;
@@ -528,7 +528,7 @@ class multivariate_normal(family):
 		H_true = dist.entropy();
 		return H_true;
 
-class dirichlet(family):
+class Dirichlet(Family):
 	"""Dirichlet family.
 
 	Attributes:
@@ -548,7 +548,7 @@ class dirichlet(family):
 			T (int): number of time points. Defaults to 1.
 		"""
 		super().__init__(D, T, eta_dist);
-		self.name = 'dirichlet';
+		self.name = 'Dirichlet';
 		self.D_Z = D-1;
 		self.num_suff_stats = D;
 		self.constant_base_measure = False;
@@ -701,12 +701,9 @@ class dirichlet(family):
 		"""
 		nonzero_simplex_eps = 1e-32;
 		alpha = params['alpha'];
-		print('alpha', alpha);
 		dist = scipy.stats.dirichlet(np.float64(alpha));
 		X = np.float64(X) + nonzero_simplex_eps;
 		X = X / np.expand_dims(np.sum(X, 1), 1);
-		print('X');
-		print(X);
 		log_p_x = dist.logpdf(X.T);
 		return log_p_x;
 
@@ -741,7 +738,7 @@ class dirichlet(family):
 		H_true = dist.entropy();
 		return H_true;
 
-class inv_wishart(family):
+class InvWishart(Family):
 	"""Inverse-Wishart family.
 
 	Attributes:
@@ -763,7 +760,7 @@ class inv_wishart(family):
 
 		self.sqrtD = int(np.sqrt(D));
 		super().__init__(D, T, eta_dist);
-		self.name = 'inv_wishart';
+		self.name = 'InvWishart';
 		self.D_Z = int(self.sqrtD*(self.sqrtD+1)/2)
 		self.num_suff_stats = self.D_Z + 1;
 		self.has_log_p = True;
@@ -953,7 +950,7 @@ class inv_wishart(family):
 		KL = np.mean(log_Q - log_P);
 		return KL;
 
-class hierarchical_dirichlet(posterior_family):
+class HierarchicalDirichlet(PosteriorFamily):
 	"""Hierarchical Dirichlet family.
 
 	Attributes:
@@ -976,7 +973,7 @@ class hierarchical_dirichlet(posterior_family):
 		"""
 
 		super().__init__(D, T, eta_dist);
-		self.name = 'hierarchical_dirichlet';
+		self.name = 'HierarchicalDirichlet';
 		self.D_Z = D-1;
 		self.num_prior_suff_stats = D + 1;
 		self.num_likelihood_suff_stats = D + 1;
@@ -1044,18 +1041,22 @@ class hierarchical_dirichlet(posterior_family):
 		log_h_x = tf.zeros((K,M), dtype=tf.float64);
 		return log_h_x;
 
+	def default_eta_dist(self,):
+		dist = {'family':'dir_dir', 'a_z':0.5, 'b_z':5.0, 'a_x':self.D, 'b_x':2*self.D};
+		return dist;
+
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
 		T_x_input = np.zeros((K, self.num_T_x_inputs));
-		Nmean = 5;
+		Nmean = 10;
 		x_eps = 1e-16;
 		params = [];
 		for k in range(K):
-			alpha_0_k = np.random.uniform(1.0, 10.0, (self.D,));
+			alpha_0_k = np.random.uniform(0.5, 5.0, (self.D,));
 			beta_k = np.random.uniform(self.D, 2*self.D);
-			N = 1;
+			N = np.random.poisson(Nmean);
 			#N = np.random.poisson(Nmean);
 			dist1 = scipy.stats.dirichlet(alpha_0_k);
 			z = dist1.rvs(1);
@@ -1122,7 +1123,7 @@ class hierarchical_dirichlet(posterior_family):
 		T_x_input = np.array([beta]);
 		return T_x_input;
 
-class dirichlet_multinomial(posterior_family):
+class DirichletMultinomial(PosteriorFamily):
 	"""Dirichlet-multinomial family.
 
 	Attributes:
@@ -1145,7 +1146,7 @@ class dirichlet_multinomial(posterior_family):
 		"""
 
 		super().__init__(D, T, eta_dist);
-		self.name = 'dirichlet_multinomial';
+		self.name = 'DirichletMultinomial';
 		self.D_Z = D-1;
 		self.num_prior_suff_stats = D + 1;
 		self.num_likelihood_suff_stats = D + 1;
@@ -1266,7 +1267,7 @@ class dirichlet_multinomial(posterior_family):
 			param_net_input = x.T;
 		return eta, param_net_input;
 
-class truncated_normal_poisson(posterior_family):
+class TruncatedNormalPoisson(PosteriorFamily):
 	"""Truncated normal Poisson family.
 
 	Attributes:
@@ -1289,13 +1290,13 @@ class truncated_normal_poisson(posterior_family):
 		"""
 
 		super().__init__(D, T, eta_dist);
-		self.name = 'truncated_normal_poisson';
+		self.name = 'TruncatedNormalPoisson';
 		self.D_Z = D;
 		self.num_prior_suff_stats = int(D+D*(D+1)/2) + 1;
 		self.num_likelihood_suff_stats = D + 1;
 		self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats;
 		self.num_T_x_inputs = 0;
-		self.prior_family = multivariate_normal(D, T);
+		self.prior_family = MultivariateNormal(D, T);
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
 		"""Returns EFN component dimensionalities for the family.
@@ -1462,7 +1463,7 @@ class truncated_normal_poisson(posterior_family):
 			param_net_input = x.T;
 		return eta, param_net_input;
 
-class log_gaussian_cox(posterior_family):
+class LogGaussianCox(PosteriorFamily):
 	"""Log gaussian Cox family.
 
 	Attributes:
@@ -1485,13 +1486,13 @@ class log_gaussian_cox(posterior_family):
 		"""
 
 		super().__init__(D, T, eta_dist);
-		self.name = 'log_gaussian_cox';
+		self.name = 'LogGaussianCox';
 		self.D_Z = D;
 		self.num_prior_suff_stats = int(D+D*(D+1)/2) + 1;
 		self.num_likelihood_suff_stats = D + 1;
 		self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats;
 		self.num_T_x_inputs = 0;
-		self.prior_family = multivariate_normal(D, T);
+		self.prior_family = MultivariateNormal(D, T);
 		self.prior = prior;
 		self.data_num_resps = None;
 		self.train_set = None;
@@ -1731,7 +1732,7 @@ class log_gaussian_cox(posterior_family):
 
 
 
-class surrogate_S_D(family):
+class SurrogateSD(Family):
 	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
 
 	Attributes:
@@ -1750,7 +1751,7 @@ class surrogate_S_D(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'S_D';
+		self.name = 'SurrogateSD';
 		self.D = D;
 		self.T = T;
 		self.num_T_x_inputs = 0;
@@ -1857,7 +1858,7 @@ class surrogate_S_D(family):
 		KL = np.mean(log_Q - log_P);
 		return KL;
 
-class surrogate_S_E_D(family):
+class SurrogateSED(Family):
 	"""Maximum entropy distribution with smoothness (S), 
 	   endpoints (E) and dim (D) constraints.
 
@@ -1877,7 +1878,7 @@ class surrogate_S_E_D(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'S_E_D';
+		self.name = 'SurrogateSED';
 		self.D = D;
 		self.T = T # total number of time points across all conditions
 		self.num_T_x_inputs = 0;
@@ -1975,7 +1976,7 @@ class surrogate_S_E_D(family):
 		X_no_EP = tf.concat(Xs, 3);
 		return X_no_EP;
 
-class GP_Dirichlet(family):
+class GPDirichlet(Family):
 	"""Maximum entropy distribution with smoothness (S) and dim (D) constraints.
 
 	Attributes:
@@ -1994,7 +1995,7 @@ class GP_Dirichlet(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'GP_Dirichlet';
+		self.name = 'GPDirichlet';
 		self.D = D;
 		self.T = T;
 		self.D_Z = D - 1;
@@ -2112,7 +2113,7 @@ class GP_Dirichlet(family):
 		layers.append(support_layer);
 		return layers, num_theta_params;
 
-class GP_E_Dirichlet(family):
+class GPEDirichlet(Family):
 	"""Maximum entropy distribution with smoothness (GP), endpoints (EP) 
 	   and expected log constraints (Dirichlet)
 
@@ -2132,7 +2133,7 @@ class GP_E_Dirichlet(family):
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
 		"""
-		self.name = 'GP_E_Dirichlet';
+		self.name = 'GPEDirichlet';
 		self.D = D;
 		self.T = T
 		self.num_T_x_inputs = 0;
