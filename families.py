@@ -9,64 +9,24 @@ from scipy.special import gammaln, psi
 import scipy.io as sio
 from itertools import compress
 
-def family_from_str(exp_fam_str):
-	if (exp_fam_str in ['MultivariateNormal', 'normal', 'multivariate_normal']):
-		return MultivariateNormal;
-	elif (exp_fam_str in ['Dirichlet', 'dirichlet']):
-		return Dirichlet;
-	elif (exp_fam_str in ['InvWishart', 'inv_wishart']):
-		return InvWishart;
-	elif (exp_fam_str in ['HierarchicalDirichlet', 'hierarchical_dirichlet', 'dir_dir']):
-		return HierarchicalDirichlet;
-	elif (exp_fam_str in ['DirichletMultinomial', 'dirichlet_multinomial', 'dir_mult']):
-		return DirichletMultinomial;
-	elif (exp_fam_str in ['TruncatedNormalPoission', 'truncated_normal_poisson', 'tnp']):
-		return TruncatedNormalPoisson;
-	elif (exp_fam_str in ['LogGaussianCox', 'log_gaussian_cox', 'lgc']):
-		return LogGaussianCox;
-
-	elif (exp_fam_str in ['SD']):
-		return surrogateSD;
-	elif (exp_fam_str in ['SED']):
-		return surrogateSED;
-	elif (exp_fam_str in ['GPDirichlet']):
-		return GPDirichlet;
-	elif (exp_fam_str in ['GPEDirichlet']):
-		return GPEDirichlet;
-
-def autocov_tf(X, tau_max, T):
-    # need to finish this
-    X_shape = tf.shape(X);
-    K = X_shape[0];
-    M = X_shape[1];
-    D = X_shape[2];
-    X_toep = [];
-    for i in range(tau_max+1):
-        X_toep.append(tf.concat((X[:,:,:,i:], tf.zeros((K,M,D,i), dtype=tf.float64)), 3));  
-    X_toep = tf.transpose(tf.convert_to_tensor(X_toep), [1, 2, 3, 0, 4]);
-    X_toep_1 = tf.expand_dims(X_toep[:,:,:,0,:], 4);
-
-    num_samps = 1.0 / (T - tf.range(1, tau_max+1, dtype=tf.float64));
-    num_samps_bcast = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(num_samps, 0), 0), 0), 4);
-    
-    autocov = tf.matmul(X_toep[:,:,:,1:,:], X_toep_1);
-    print(autocov);
-    autocov = tf.multiply(autocov, num_samps_bcast);
-    print(autocov);
-    return autocov;
 
 class Family:
 	"""Base class for exponential families.
 	
-	Exponential families differ in their sufficient statistics, base measures,
-	supports, ane therefore their natural parametrization.  Derivatives of this 
-	class are useful tools for learning exponential family models in tensorflow.
+	Exponential families differ in their sufficient statistics, base measures, supports,
+	and therefore their natural parametrization.  Children of this class provide a set 
+	of useful methods for learning particular exponential family models.
 
 	Attributes:
-		D (int): dimensionality of the exponential family
-		T (int): number of time points
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
-		                      (only necessary for hierarchical dirichlet)
+		D (int): Dimensionality of the exponential family.
+		T (int): Number of time points.
+		num_T_x_inputs (int): Number of param-dependent inputs to suff stat comp
+		                      (only used in HierarchicalDirichlet).
+		constant_base_measure (bool): True if base measure is sample independent.
+		has_log_p (bool): True if a tractable form for sample log density is known.
+		eta_dist (dict): Specifies the prior on the natural parameter, eta.
+		eta_sampler (function): Returns a single sample from the eta prior.
+
 	"""
 
 	def __init__(self, D, T=1, eta_dist=None):
@@ -79,7 +39,6 @@ class Family:
 
 		self.D = D;
 		self.T = T;
-		self.realT = T;
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
 		self.has_log_p = False;
@@ -92,6 +51,7 @@ class Family:
 
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
 		"""Returns EFN component dimensionalities for the family."""
+		raise NotImplementedError();
 
 	def map_to_support(self, layers, num_theta_params):
 		"""Augment density network with bijective mapping to support."""
@@ -126,7 +86,8 @@ class Family:
 		raise NotImplementedError();
 
 	def mu_to_T_x_input(self, params):
-		"""Maps mean parameters (mu) of distribution to suff stat comp input.
+		"""Maps mean parameters (mu) of distribution to suff stat computation input.
+		   (only necessary for HierarchicalDirichlet)
 
 		Args:
 			params (dict): Mean parameters.
@@ -139,21 +100,11 @@ class Family:
 		return T_x_input;
 
 	def log_p(self, X, params):
-		"""Computes log probability of X given params.
-
-		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
-
-		Returns:
-			log_p (np.array): Ground truth probability of X for params.
-		"""
-
+		"""Computes log probability of X given params."""
 		raise NotImplementedError();
-		return None;
 
 	def batch_diagnostics(self, K, sess, feed_dict, X, log_p_x, elbos, R2s, eta_draw_params, checkEntropy=False):
-		"""Returns elbos, r^2s, and KL divergences of K distributions of family.
+		"""Returns ELBOs, r^2s, and KL divergences of K distributions of family.
 
 		Args:
 			K (int): number of distributions
@@ -251,7 +202,6 @@ class PosteriorFamily(Family):
 
 		self.D = D;
 		self.T = T;
-		self.realT = T;
 		self.num_T_x_inputs = 0;
 		self.constant_base_measure = True;
 		self.has_log_p = False;
@@ -2291,6 +2241,32 @@ class GPEDirichlet(Family):
 		return layers, num_theta_params;
 
 
+def family_from_str(exp_fam_str):
+	if (exp_fam_str in ['MultivariateNormal', 'normal', 'multivariate_normal']):
+		return MultivariateNormal;
+	elif (exp_fam_str in ['Dirichlet', 'dirichlet']):
+		return Dirichlet;
+	elif (exp_fam_str in ['InvWishart', 'inv_wishart']):
+		return InvWishart;
+	elif (exp_fam_str in ['HierarchicalDirichlet', 'hierarchical_dirichlet', 'dir_dir']):
+		return HierarchicalDirichlet;
+	elif (exp_fam_str in ['DirichletMultinomial', 'dirichlet_multinomial', 'dir_mult']):
+		return DirichletMultinomial;
+	elif (exp_fam_str in ['TruncatedNormalPoission', 'truncated_normal_poisson', 'tnp']):
+		return TruncatedNormalPoisson;
+	elif (exp_fam_str in ['LogGaussianCox', 'log_gaussian_cox', 'lgc']):
+		return LogGaussianCox;
+
+	elif (exp_fam_str in ['SD']):
+		return surrogateSD;
+	elif (exp_fam_str in ['SED']):
+		return surrogateSED;
+	elif (exp_fam_str in ['GPDirichlet']):
+		return GPDirichlet;
+	elif (exp_fam_str in ['GPEDirichlet']):
+		return GPEDirichlet;
+
+
 def compute_mu_S_len(D, T_Cs):
 	C = len(T_Cs);
 	mu_S_len = 0.0
@@ -2538,5 +2514,3 @@ def compute_mu_D(params, D, T):
 	mu_D = np.concatenate((mu_mu, mu_Sigma), 0);
 
 	return mu_D;
-
-
