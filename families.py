@@ -1,13 +1,13 @@
 import tensorflow as tf
 import numpy as np
-from tf_util.stat_util import truncated_multivariate_normal_rvs, get_GP_Sigma, \
-                              drawPoissonCounts, get_sampler_func, get_posterior_sampler_func
-from tf_util.tf_util import count_layer_params
-from tf_util.flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
 import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
 from itertools import compress
+from tf_util.tf_util import count_layer_params
+from tf_util.stat_util import truncated_multivariate_normal_rvs, get_GP_Sigma, \
+                              drawPoissonCounts, get_sampler_func
+from tf_util.flows import SimplexBijectionLayer, CholProdLayer, SoftPlusLayer, ShiftLayer
 
 
 class Family:
@@ -19,7 +19,9 @@ class Family:
 
 	Attributes:
 		D (int): Dimensionality of the exponential family.
+		D_Z (int): Dimensionality of the density network.
 		T (int): Number of time points.
+		num_suff_stats (int): Dimensionality of sufficient statistics vector.
 		num_T_x_inputs (int): Number of param-dependent inputs to suff stat comp
 		                      (only used in HierarchicalDirichlet).
 		constant_base_measure (bool): True if base measure is sample independent.
@@ -30,11 +32,13 @@ class Family:
 	"""
 
 	def __init__(self, D, T=1, eta_dist=None):
-		"""Family constructor
+		"""Family constructor.
 
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
+			eta_dist (dict): Specifies the prior on the natural parameter, eta.
+
 		"""
 
 		self.D = D;
@@ -48,11 +52,6 @@ class Family:
 			self.eta_dist = self.default_eta_dist();
 		self.eta_sampler = get_sampler_func(self.eta_dist, self.D);
 
-
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family."""
-		raise NotImplementedError();
-
 	def map_to_support(self, layers, num_theta_params):
 		"""Augment density network with bijective mapping to support."""
 		return layers, num_theta_params;
@@ -62,7 +61,7 @@ class Family:
 		raise NotImplementedError();
 
 	def compute_mu(self, params):
-		"""No comment yet."""
+		"""Compute the mean parameterization (mu) given the mean parameters."""
 		raise NotImplementedError();
 
 	def center_suff_stats_by_mu(self, T_x, mu):
@@ -74,11 +73,11 @@ class Family:
 		raise NotImplementedError();
 
 	def default_eta_dist(self,):
-		"""Description."""
+		"""Construct default eta prior."""
 		raise NotImplementedError();
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
-		"""TODO I expect this function to change with prior specification ."""
+		"""Samples K times from eta prior and sets up parameter network input."""
 		raise NotImplementedError();
 
 	def mu_to_eta(self, params, param_net_input_type='eta', give_hint='False'):
@@ -94,10 +93,15 @@ class Family:
 
 		Returns:
 			T_x_input (np.array): Param-dependent input.
+
 		"""
 
 		T_x_input = np.array([]);
 		return T_x_input;
+
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family."""
+		raise NotImplementedError();
 
 	def log_p(self, X, params):
 		"""Computes log probability of X given params."""
@@ -107,20 +111,22 @@ class Family:
 		"""Returns ELBOs, r^2s, and KL divergences of K distributions of family.
 
 		Args:
-			K (int): number of distributions
-			sess (tf session): current tf session
-			feed_dict (dict): contains Z0, eta, param_net_input, and T_x_input
-			X (tf.tensor): density network samples
-			log_p_x (tf.tensor): log probs of X
-			elbos (tf.tensor): ELBO for each distribution
-			R2s (tf.tensor): r^2 for each distribution
-			eta_draw_params (list): contains mean parameters of each distribution
-			check_entropy (bool): print model entropy relative to true entropy
+			K (int): Number of distributions.
+			sess (tf session): Running tf session.
+			feed_dict (dict): Contains Z0, eta, param_net_input, and T_x_input.
+			X (tf.tensor): Density network samples.
+			log_p_x (tf.tensor): Log probabilities of X.
+			elbos (tf.tensor): ELBOs for each distribution.
+			R2s (tf.tensor): r^2s for each distribution
+			eta_draw_params (list): Contains mean parameters of each distribution.
+			check_entropy (bool): Print model entropy relative to true entropy.
 
 		Returns:
-			_elbos (np.array): approximate ELBO for each dist
-			_R2s (np.array): approximate r^2s for each dist
-			KLs (np.array): approximate KL divergence for each dist
+			_elbos (np.array): Approximate ELBO for each distribution.
+			_R2s (np.array): Approximate r^2s for each distribution.
+			KLs (np.array): Approximate KL divergence for each distribution.
+			_X (np.array): Density network samples.
+
 		"""
 
 		_X, _log_p_x, _elbos, _R2s = sess.run([X, log_p_x, elbos, R2s], feed_dict);
@@ -136,8 +142,21 @@ class Family:
 		return _elbos, _R2s, KLs, _X;
 
 	def approx_KL(self, log_Q, X, params):
-		"""Approximate KL(Q || P)."""
-		return np.nan;
+		"""Approximate KL(Q || P).
+
+		Args:
+			log_Q (np.array): log prob of density network samples.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of target distribution.
+
+		Returns:
+			KL (np.float): KL(Q || P)
+			
+		"""
+
+		log_P = self.log_p_np(X, params);
+		KL = np.mean(log_Q - log_P);
+		return KL;
 
 	def approx_entropy(self, log_Q):
 		"""Approximates entropy of the sampled distribution.
@@ -176,19 +195,24 @@ class Family:
 class PosteriorFamily(Family):
 	"""Base class for posterior-inference exponential families.
 	
-	When the likelihood of a bayesian model has exoponential family form and is
-	closed under sampling, we can learn the posterior-inference exponential
-	family.  See section A.2 of the efn code docs.
+	When the likelihood of a bayesian model has exoponential family form and is closed 
+	under sampling, we can learn the posterior-inference exponential family.  See section
+	A.2 of the efn code docs.
 
 	Attributes:
-		D (int): dimensionality of the exponential family
-		T (int): number of time points
-		D_Z (int): dimensionality of the density network
-		num_prior_suff_stats (int): number of suff stats that come from prior
-		num_likelihood_suff_stats (int): " " from likelihood
-		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
-		                      (only necessary for hierarchical dirichlet)
+		D (int): Dimensionality of the exponential family.
+		T (int): Number of time points.
+		D_Z (int): Dimensionality of the density network.
+		num_T_x_inputs (int): Number of param-dependent inputs to suff stat comp
+		                      (only used in HierarchicalDirichlet).
+		constant_base_measure (bool): True if base measure is sample independent.
+		has_log_p (bool): True if a tractable form for sample log density is known.
+		eta_dist (dict): Specifies the prior on the natural parameter, eta.
+		eta_sampler (function): Returns a single sample from the eta prior.
+		num_prior_suff_stats (int): Number of suff stats that come from prior.
+		num_likelihood_suff_stats (int): " " from likelihood.
+		num_suff_stats (int): Total number of suff stats.
+
 	"""
 
 
@@ -198,18 +222,10 @@ class PosteriorFamily(Family):
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
-		"""
+			eta_dist (dict): Specifies the prior on the natural parameter, eta.
 
-		self.D = D;
-		self.T = T;
-		self.num_T_x_inputs = 0;
-		self.constant_base_measure = True;
-		self.has_log_p = False;
-		if (eta_dist is not None):
-			self.eta_dist = eta_dist;
-		else:
-			self.eta_dist = self.default_eta_dist();
-		self.eta_sampler = get_posterior_sampler_func(self.eta_dist, self.D);
+		"""
+		super().__init__(D, T, eta_dist);
 		self.D_Z = None;
 		self.num_prior_suff_stats = None;
 		self.num_likelihood_suff_stats = None;
@@ -219,18 +235,19 @@ class PosteriorFamily(Family):
 		"""Returns EFN component dimensionalities for the family.
 
 		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-				'prior':      part of eta that is prior-dependent
-				'likelihood': part of eta that is likelihood-dependent
-				'data':       the data itself
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
 			give_hint: (bool): No hint implemented.
 
 		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+
 		"""
 		if (give_hint):
 			raise NotImplementedError();
@@ -245,16 +262,7 @@ class PosteriorFamily(Family):
 		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
 class MultivariateNormal(Family):
-	"""Multivariate normal family.
-
-	Attributes:
-		D (int): dimensionality of the exponential family
-		T (int): number of time points
-		D_Z (int): dimensionality of the density network
-		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
-		                      (only necessary for hierarchical dirichlet)
-	"""
+	"""Multivariate normal family."""
 
 	def __init__(self, D, T=1, eta_dist=None):
 		"""Multivariate normal family constructor
@@ -262,37 +270,14 @@ class MultivariateNormal(Family):
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
+			eta_dist (dict): Specifies the prior on the natural parameter, eta.
+
 		"""
 		super().__init__(D, T, eta_dist);
 		self.name = 'MultivariateNormal';
 		self.D_Z = D;
 		self.num_suff_stats = int(D+D*(D+1)/2);
 		self.has_log_p = True;
-
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		if (not param_net_input_type == 'eta'):
-			raise NotImplementedError();
-
-		if (give_hint):
-			#num_param_net_inputs = int(2*self.D + self.D*(self.D+1));
-			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
-		else:
-			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
 		"""Compute sufficient statistics of density network samples.
@@ -304,6 +289,7 @@ class MultivariateNormal(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -318,6 +304,15 @@ class MultivariateNormal(Family):
 		return T_x;
 
 	def compute_mu(self, params):
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		mu = params['mu'];
 		Sigma = params['Sigma'];
 		mu_mu = mu;
@@ -337,13 +332,11 @@ class MultivariateNormal(Family):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
-		"""
+			log_h_x (tf.tensor): Log base measure of samples.
 
+		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
@@ -351,12 +344,33 @@ class MultivariateNormal(Family):
 		return log_h_x;
 
 	def default_eta_dist(self,):
+		"""Construct default eta prior.
+
+		Returns:
+			dist (dict): Default eta prior distribution.
+
+		"""
 		dist = {'family':'iso_mvn_and_iso_iw', \
 		                  'mu':np.zeros((self.D,)), 'scale':0.1, \
 		                  'df_fac':5};
 		return dist;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): Feed in covariance cholesky if true.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
@@ -374,14 +388,15 @@ class MultivariateNormal(Family):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
 			give_hint: (bool): Feed in covariance cholesky if true.
 
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+
 		"""
 
 		if (not param_net_input_type == 'eta'):
@@ -409,15 +424,42 @@ class MultivariateNormal(Family):
 			param_net_input = eta;
 		return eta, param_net_input;
 
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): Feed in covariance cholesky and mean if true.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+
+		"""
+
+		if (not param_net_input_type == 'eta'):
+			raise NotImplementedError();
+
+		if (give_hint):
+			#num_param_net_inputs = int(2*self.D + self.D*(self.D+1));
+			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
+		else:
+			num_param_net_inputs = int(self.D + self.D*(self.D+1)/2);
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
 	def log_p(self, X, params):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (tf.tensor): Density network samples
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+
 		"""
 
 		mu = params['mu'];
@@ -432,11 +474,12 @@ class MultivariateNormal(Family):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+
 		"""
 
 		mu = params['mu'];
@@ -446,30 +489,15 @@ class MultivariateNormal(Family):
 		log_p_x = dist.logpdf(X);
 		return log_p_x;
 
-	def approx_KL(self, log_Q, X, params):
-		"""Approximate KL(Q || P).
-
-		Args:
-			log_Q (np.array): log prob of density network samples.
-			X (np.array): Density network samples.
-			params (dict): Mean parameters of target distribution.
-
-		Returns:
-			KL (np.float): KL(Q || P)
-		"""
-
-		log_P = self.log_p_np(X, params);
-		KL = np.mean(log_Q - log_P);
-		return KL;
-
 	def true_entropy(self, params):
 		"""Calculates true entropy of the distribution from mean parameters.
 
 		Args:
-			params (dict): Mean parameters
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			H_true (np.float): True (enough) distribution entropy.
+			H_true (np.float): True distribution entropy.
+
 		"""
 
 		mu = params['mu'];
@@ -496,6 +524,7 @@ class Dirichlet(Family):
 		Args:
 			D (int): dimensionality of the exponential family
 			T (int): number of time points. Defaults to 1.
+
 		"""
 		super().__init__(D, T, eta_dist);
 		self.name = 'Dirichlet';
@@ -503,26 +532,6 @@ class Dirichlet(Family):
 		self.num_suff_stats = D;
 		self.constant_base_measure = False;
 		self.has_log_p = True;
-
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): No hint implemented.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		if (give_hint or (not param_net_input_type == 'eta')):
-			raise NotImplementedError();
-		num_param_net_inputs = self.D;			
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
 	def map_to_support(self, layers, num_theta_params):
 		"""Augment density network with bijective mapping to support.
@@ -534,6 +543,7 @@ class Dirichlet(Family):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+
 		"""
 		support_layer = SimplexBijectionLayer();
 		num_theta_params += count_layer_params(support_layer);
@@ -550,6 +560,7 @@ class Dirichlet(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 
 		X_shape = tf.shape(X);
@@ -561,6 +572,15 @@ class Dirichlet(Family):
 		return T_x;
 
 	def compute_mu(self, params):
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		alpha = params['alpha'];
 		alpha_0 = np.sum(alpha);
 		phi_0 = psi(alpha_0);
@@ -572,22 +592,41 @@ class Dirichlet(Family):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			log_h_x (tf.tensor): Log base measure of samples.
+			
 		"""
-
 		assert(self.T == 1);
 		log_h_x = -tf.reduce_sum(tf.log(X), [2]);
 		return log_h_x[:,:,0];
 
 	def default_eta_dist(self,):
+		"""Construct default eta prior.
+
+		Returns:
+			dist (dict): Default eta prior distribution.
+
+		"""
 		dist = {'family':'uniform', 'a':0.5, 'b':5.0};
 		return dist;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
@@ -605,14 +644,15 @@ class Dirichlet(Family):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
 			give_hint: (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
 		"""
 
 		if (give_hint or (not param_net_input_type == 'eta')):
@@ -622,15 +662,37 @@ class Dirichlet(Family):
 		param_net_input = alpha;
 		return eta, param_net_input;
 
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
+		"""
+
+		if (give_hint or (not param_net_input_type == 'eta')):
+			raise NotImplementedError();
+		num_param_net_inputs = self.D;			
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
 	def log_p(self, X, params):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (tf.tensor): Density network samples
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+			
 		"""
 
 		alpha = params['alpha'];
@@ -643,11 +705,12 @@ class Dirichlet(Family):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+
 		"""
 		nonzero_simplex_eps = 1e-32;
 		alpha = params['alpha'];
@@ -657,30 +720,15 @@ class Dirichlet(Family):
 		log_p_x = dist.logpdf(X.T);
 		return log_p_x;
 
-	def approx_KL(self, log_Q, X, params):
-		"""Approximate KL(Q || P).
-
-		Args:
-			log_Q (np.array): log prob of density network samples.
-			X (np.array): Density network samples.
-			params (dict): Mean parameters of target distribution.
-
-		Returns:
-			KL (np.float): KL(Q || P)
-		"""
-
-		log_P = self.log_p_np(X, params);
-		KL = np.mean(log_Q - log_P);
-		return KL;
-
 	def true_entropy(self, params):
 		"""Calculates true entropy of the distribution from mean parameters.
 
 		Args:
-			params (dict): Mean parameters
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			H_true (np.float): True (enough) distribution entropy.
+			H_true (np.float): True distribution entropy.
+
 		"""
 
 		alpha = params['alpha'];
@@ -716,31 +764,6 @@ class InvWishart(Family):
 		self.has_log_p = True;
 		self.diag_eps=1e-10;
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in inverse Psi cholesky if True.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		if (not param_net_input_type == 'eta'):
-			raise NotImplementedError();
-
-		if (give_hint):
-			num_param_net_inputs = 2*self.D_Z + 1;
-		else:
-			num_param_net_inputs = self.num_suff_stats;
-			
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 	def map_to_support(self, layers, num_theta_params):
 		"""Augment density network with bijective mapping to support.
 
@@ -751,6 +774,7 @@ class InvWishart(Family):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+
 		"""
 		support_layer = CholProdLayer();
 		num_theta_params += count_layer_params(support_layer);
@@ -767,6 +791,7 @@ class InvWishart(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 
 		assert(self.T == 1);
@@ -795,13 +820,11 @@ class InvWishart(Family):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			log_h_x (tf.tensor): Log base measure of samples.
+			
 		"""
-
 		assert(self.T == 1);
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -810,13 +833,34 @@ class InvWishart(Family):
 		return log_h_x;
 
 	def default_eta_dist(self,):
-			dist = {'family':'ui_and_iso_iw', \
-			                 'ui_dim':1, 'iw_dim':self.sqrtD, \
-			                 'a':2*self.sqrtD, 'b':3*self.sqrtD, \
-			                 'df_fac':100};
-			return dist;
+		"""Construct default eta prior.
+
+		Returns:
+			dist (dict): Default eta prior distribution.
+
+		"""
+		dist = {'family':'ui_and_iso_iw', \
+		                 'ui_dim':1, 'iw_dim':self.sqrtD, \
+		                 'a':2*self.sqrtD, 'b':3*self.sqrtD, \
+		                 'df_fac':100};
+		return dist;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): Feed in inverse Psi cholesky if True.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
@@ -835,14 +879,15 @@ class InvWishart(Family):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
 			give_hint: (bool): Feed in inverse Psi cholesky if True.
 
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
 		"""
 
 		if (not param_net_input_type == 'eta'):
@@ -865,15 +910,42 @@ class InvWishart(Family):
 			param_net_input = eta;
 		return eta, param_net_input;
 
-	def log_p(self, X, params, ):
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): Feed in inverse Psi cholesky if True.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
+		"""
+
+		if (not param_net_input_type == 'eta'):
+			raise NotImplementedError();
+
+		if (give_hint):
+			num_param_net_inputs = 2*self.D_Z + 1;
+		else:
+			num_param_net_inputs = self.num_suff_stats;
+			
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
+	def log_p_np(self, X, params, ):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+
 		"""
 
 		batch_size = X.shape[0];
@@ -882,23 +954,6 @@ class InvWishart(Family):
 		X = np.reshape(X, [batch_size, self.sqrtD, self.sqrtD]);
 		log_p_x = scipy.stats.invwishart.logpdf(np.transpose(X, [1,2,0]), float(m), Psi);
 		return log_p_x;
-
-	def approx_KL(self, log_Q, X, params):
-		"""Approximate KL(Q || P).
-
-		Args:
-			log_Q (np.array): log prob of density network samples.
-			X (np.array): Density network samples.
-			params (dict): Mean parameters of target distribution.
-
-		Returns:
-			KL (np.float): KL(Q || P)
-		"""
-
-		
-		log_P = self.log_p(X, params);
-		KL = np.mean(log_Q - log_P);
-		return KL;
 
 class HierarchicalDirichlet(PosteriorFamily):
 	"""Hierarchical Dirichlet family.
@@ -940,6 +995,7 @@ class HierarchicalDirichlet(PosteriorFamily):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+
 		"""
 		support_layer = SimplexBijectionLayer();
 		num_theta_params += count_layer_params(support_layer);
@@ -956,6 +1012,7 @@ class HierarchicalDirichlet(PosteriorFamily):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 
 		assert(self.T == 1);
@@ -977,13 +1034,11 @@ class HierarchicalDirichlet(PosteriorFamily):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			log_h_x (tf.tensor): Log base measure of samples.
+			
 		"""
-
 		assert(self.T == 1);
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -992,10 +1047,34 @@ class HierarchicalDirichlet(PosteriorFamily):
 		return log_h_x;
 
 	def default_eta_dist(self,):
+		"""Construct default eta prior.
+
+		Returns:
+			dist (dict): Default eta prior distribution.
+
+		"""
 		dist = {'family':'dir_dir', 'a_z':0.5, 'b_z':5.0, 'a_x':self.D, 'b_x':2*self.D};
 		return dist;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
@@ -1024,14 +1103,18 @@ class HierarchicalDirichlet(PosteriorFamily):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
 			give_hint: (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
 		"""
 
 		if (give_hint):
@@ -1063,7 +1146,7 @@ class HierarchicalDirichlet(PosteriorFamily):
 		"""Maps mean parameters (mu) of distribution to suff stat comp input.
 
 		Args:
-			params (dict): Mean parameters.
+			params (dict): Mean parameters of distributions.
 
 		Returns:
 			T_x_input (np.array): Param-dependent input.
@@ -1113,6 +1196,7 @@ class DirichletMultinomial(PosteriorFamily):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+
 		"""
 		support_layer = SimplexBijectionLayer();
 		num_theta_params += count_layer_params(support_layer);
@@ -1129,6 +1213,7 @@ class DirichletMultinomial(PosteriorFamily):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 
 		assert(self.T == 1);
@@ -1146,13 +1231,11 @@ class DirichletMultinomial(PosteriorFamily):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			log_h_x (tf.tensor): Log base measure of samples.
+			
 		"""
-
 		assert(self.T == 1);
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -1161,10 +1244,34 @@ class DirichletMultinomial(PosteriorFamily):
 		return log_h_x;
 
 	def default_eta_dist(self,):
+		"""Construct default eta prior.
+
+		Returns:
+			dist (dict): Default eta prior distribution.
+
+		"""
 		dist = {'family':'dir_mult', 'a_uniform':0.5, 'b':5.0, 'a_delta':1};
 		return dist;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
 		param_net_inputs = np.zeros((K, num_param_net_inputs));
@@ -1184,14 +1291,18 @@ class DirichletMultinomial(PosteriorFamily):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
 			give_hint: (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
 		"""
 
 		if (give_hint):
@@ -1248,6 +1359,159 @@ class TruncatedNormalPoisson(PosteriorFamily):
 		self.num_T_x_inputs = 0;
 		self.prior_family = MultivariateNormal(D, T);
 
+	def map_to_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+
+		"""
+		support_layer = SoftPlusLayer();
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params;
+
+	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+		"""Compute sufficient statistics of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+			Z_by_layer (list): List of layer activations in density network.
+			T_x_input (tf.tensor): Param-dependent input.
+
+		Returns:
+			T_x (tf.tensor): Sufficient statistics of samples.
+
+		"""
+
+		assert(self.T == 1);
+		X_shape = tf.shape(X);
+		K = X_shape[0];
+		M = X_shape[1];
+		T_x_prior = self.prior_family.compute_suff_stats(X, Z_by_layer, T_x_input);
+		const = -tf.ones((K,M,1), tf.float64);
+		logz = tf.log(X[:,:,:,0]);
+		sumz = tf.expand_dims(tf.reduce_sum(X[:,:,:,0], 2), 2);
+		T_x = tf.concat((T_x_prior, const, logz, sumz), 2);
+		return T_x;
+
+	def compute_log_base_measure(self, X):
+		"""Compute log base measure of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+
+		Returns:
+			log_h_x (tf.tensor): Log base measure of samples.
+			
+		"""
+		assert(self.T == 1);
+		X_shape = tf.shape(X);
+		K = X_shape[0];
+		M = X_shape[1];
+		log_h_x = tf.zeros((K,M), dtype=tf.float64);
+		return log_h_x;
+
+
+	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): specifies input to param network
+				'eta':        give full eta to parameter network
+				'prior':      part of eta that is prior-dependent
+				'likelihood': part of eta that is likelihood-dependent
+				'data':       the data itself
+			give_hint: (bool): Feed in prior covariance cholesky if true.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
+		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
+		eta = np.zeros((K, self.num_suff_stats));
+		param_net_inputs = np.zeros((K, num_param_net_inputs));
+		T_x_input = np.zeros((K, self.num_T_x_inputs));
+		nneurons = 83;
+		noris = 12;
+		Ts = .02;
+		mean_FR = 0.1169;
+		var_FR = 0.0079;
+		mu = mean_FR*np.ones((self.D_Z,));
+		tau = .025;
+		#Sigma = var_FR*np.eye(self.D_Z);
+		Sigma = var_FR*get_GP_Sigma(tau, self.D_Z, Ts)
+		params = [];
+		data_sets = np.random.choice(nneurons*noris, K, False);
+		for k in range(K):
+			neuron = (data_sets[k] // noris) + 1;
+			ori = np.mod(data_sets[k], noris) + 1;
+			M = sio.loadmat(datadir + 'spike_counts_neuron%d_ori%d.mat' % (neuron, ori));
+			x = M['x'][:,:self.D_Z].T;
+			N = x.shape[1];
+			params_k = {'mu':mu, 'Sigma':Sigma, 'x':x, 'N':N, 'monkey':1, 'neuron':neuron, 'ori':ori};
+			params.append(params_k);
+			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, give_hint);
+			T_x_input[k,:] = self.mu_to_T_x_input(params_k);
+		return eta, param_net_inputs, T_x_input, params;
+
+	def mu_to_eta(self, params, param_net_input_type='eta', give_hint=False):
+		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
+
+		Args:
+			params (dict): Mean parameters of distribution.
+			param_net_input_type (str): specifies input to param network
+				'eta':        give full eta to parameter network
+				'prior':      part of eta that is prior-dependent
+				'likelihood': part of eta that is likelihood-dependent
+				'data':       the data itself
+			give_hint: (bool): Feed in prior covariance cholesky if true.
+
+		Returns:
+			eta (np.array): Canonical parameters.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
+		"""
+		
+		mu = params['mu'];
+		Sigma = params['Sigma'];
+		x = params['x'];
+		N = params['N'];
+		assert(N == x.shape[1]);
+
+		alpha, alpha_param_net_input = self.prior_family.mu_to_eta(params, param_net_input_type, give_hint);
+		mu = np.expand_dims(mu, 1);
+		log_A_0 = 0.5*(np.dot(mu.T, np.dot(np.linalg.inv(Sigma), mu)) + np.log(np.linalg.det(Sigma)));
+		sumx = np.sum(x, 1);
+
+		eta_from_prior = np.concatenate((alpha, log_A_0[0]), 0);
+		eta_from_likelihood = np.concatenate((sumx, -np.array([N])), 0);
+		eta = np.concatenate((eta_from_prior, eta_from_likelihood), 0);
+
+		param_net_input_from_prior = np.concatenate((alpha_param_net_input, log_A_0[0]), 0);
+		param_net_input_from_likelihood = np.concatenate((sumx, -np.array([N])), 0);
+		param_net_input_full = np.concatenate((param_net_input_from_prior, param_net_input_from_likelihood), 0);
+
+		if (param_net_input_type == 'eta'):
+			param_net_input = param_net_input_full;
+		elif (param_net_input_type == 'prior'):
+			param_net_input = param_net_input_from_prior;
+		elif (param_net_input_type == 'likelihood'):
+			param_net_input = param_net_input_from_likelihood;
+		elif (param_net_input_type == 'data'):
+			assert(x.shape[1] == 1 and N == 1);
+			param_net_input = x.T;
+		return eta, param_net_input;
+
 	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
 		"""Returns EFN component dimensionalities for the family.
 
@@ -1282,136 +1546,6 @@ class TruncatedNormalPoisson(PosteriorFamily):
 			num_param_net_inputs = self.D;
 
 		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
-	def map_to_support(self, layers, num_theta_params):
-		"""Augment density network with bijective mapping to support.
-
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
-
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-		"""
-		support_layer = SoftPlusLayer();
-		num_theta_params += count_layer_params(support_layer);
-		layers.append(support_layer);
-		return layers, num_theta_params;
-
-	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
-		"""Compute sufficient statistics of density network samples.
-
-		Args:
-			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
-
-		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
-		"""
-
-		assert(self.T == 1);
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		T_x_prior = self.prior_family.compute_suff_stats(X, Z_by_layer, T_x_input);
-		const = -tf.ones((K,M,1), tf.float64);
-		logz = tf.log(X[:,:,:,0]);
-		sumz = tf.expand_dims(tf.reduce_sum(X[:,:,:,0], 2), 2);
-		T_x = tf.concat((T_x_prior, const, logz, sumz), 2);
-		return T_x;
-
-	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples.
-
-		Args:
-			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
-
-		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
-		"""
-
-		assert(self.T == 1);
-		X_shape = tf.shape(X);
-		K = X_shape[0];
-		M = X_shape[1];
-		log_h_x = tf.zeros((K,M), dtype=tf.float64);
-		return log_h_x;
-
-
-	def draw_etas(self, K, param_net_input_type='eta', give_hint=False):
-		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
-		eta = np.zeros((K, self.num_suff_stats));
-		param_net_inputs = np.zeros((K, num_param_net_inputs));
-		T_x_input = np.zeros((K, self.num_T_x_inputs));
-		nneurons = 83;
-		noris = 12;
-		Ts = .02;
-		mean_FR = 0.1169;
-		var_FR = 0.0079;
-		mu = mean_FR*np.ones((self.D_Z,));
-		tau = .025;
-		#Sigma = var_FR*np.eye(self.D_Z);
-		Sigma = var_FR*get_GP_Sigma(tau, self.D_Z, Ts)
-		params = [];
-		data_sets = np.random.choice(nneurons*noris, K, False);
-		for k in range(K):
-			neuron = (data_sets[k] // noris) + 1;
-			ori = np.mod(data_sets[k], noris) + 1;
-			M = sio.loadmat(datadir + 'spike_counts_neuron%d_ori%d.mat' % (neuron, ori));
-			x = M['x'][:,:self.D_Z].T;
-			N = x.shape[1];
-			params_k = {'mu':mu, 'Sigma':Sigma, 'x':x, 'N':N, 'monkey':1, 'neuron':neuron, 'ori':ori};
-			params.append(params_k);
-			eta[k,:], param_net_inputs[k,:] = self.mu_to_eta(params_k, param_net_input_type, give_hint);
-			T_x_input[k,:] = self.mu_to_T_x_input(params_k);
-		return eta, param_net_inputs, T_x_input, params;
-
-	def mu_to_eta(self, params, param_net_input_type='eta', give_hint=False):
-		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
-
-		Args:
-			params (dict): Mean parameters
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in prior covariance cholesky if true.
-		Returns:
-			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
-		"""
-		
-		mu = params['mu'];
-		Sigma = params['Sigma'];
-		x = params['x'];
-		N = params['N'];
-		assert(N == x.shape[1]);
-
-		alpha, alpha_param_net_input = self.prior_family.mu_to_eta(params, param_net_input_type, give_hint);
-		mu = np.expand_dims(mu, 1);
-		log_A_0 = 0.5*(np.dot(mu.T, np.dot(np.linalg.inv(Sigma), mu)) + np.log(np.linalg.det(Sigma)));
-		sumx = np.sum(x, 1);
-
-		eta_from_prior = np.concatenate((alpha, log_A_0[0]), 0);
-		eta_from_likelihood = np.concatenate((sumx, -np.array([N])), 0);
-		eta = np.concatenate((eta_from_prior, eta_from_likelihood), 0);
-
-		param_net_input_from_prior = np.concatenate((alpha_param_net_input, log_A_0[0]), 0);
-		param_net_input_from_likelihood = np.concatenate((sumx, -np.array([N])), 0);
-		param_net_input_full = np.concatenate((param_net_input_from_prior, param_net_input_from_likelihood), 0);
-
-		if (param_net_input_type == 'eta'):
-			param_net_input = param_net_input_full;
-		elif (param_net_input_type == 'prior'):
-			param_net_input = param_net_input_from_prior;
-		elif (param_net_input_type == 'likelihood'):
-			param_net_input = param_net_input_from_likelihood;
-		elif (param_net_input_type == 'data'):
-			assert(x.shape[1] == 1 and N == 1);
-			param_net_input = x.T;
-		return eta, param_net_input;
 
 class LogGaussianCox(PosteriorFamily):
 	"""Log gaussian Cox family.
@@ -1448,41 +1582,6 @@ class LogGaussianCox(PosteriorFamily):
 		self.train_set = None;
 		self.test_set = None;
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-				'prior':      part of eta that is prior-dependent
-				'likelihood': part of eta that is likelihood-dependent
-				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		if (give_hint):
-			param_net_inputs_from_prior = self.num_prior_suff_stats + int(self.D*(self.D+1)/2);
-		else:
-			param_net_inputs_from_prior = self.num_prior_suff_stats;
-
-		if (param_net_input_type == 'eta'):
-			num_param_net_inputs = param_net_inputs_from_prior \
-			                       + self.num_likelihood_suff_stats;
-		elif (param_net_input_type == 'prior'):
-			num_param_net_inputs = param_net_inputs_from_prior;
-		elif (param_net_input_type == 'likelihood'):
-			num_param_net_inputs = self.num_likelihood_suff_stats;
-		elif (param_net_input_type == 'data'):
-			num_param_net_inputs = self.D;
-
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 
 	def map_to_support(self, layers, num_theta_params):
 		"""Augment density network with bijective mapping to support.
@@ -1494,6 +1593,7 @@ class LogGaussianCox(PosteriorFamily):
 		Returns:
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
+
 		"""
 		support_layer = ShiftLayer(name='ShiftLayer', dim=self.D_Z);
 		num_theta_params += count_layer_params(support_layer);
@@ -1511,6 +1611,7 @@ class LogGaussianCox(PosteriorFamily):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 
 		assert(self.T == 1);
@@ -1529,13 +1630,11 @@ class LogGaussianCox(PosteriorFamily):
 
 		Args:
 			X (tf.tensor): Density network samples.
-			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			log_h_x (tf.tensor): Log base measure of samples.
+			
 		"""
-
 		assert(self.T == 1);
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -1599,6 +1698,24 @@ class LogGaussianCox(PosteriorFamily):
 		return ind;
 
 	def draw_etas(self, K, param_net_input_type='eta', give_hint=False, train=True, resp_info=None):
+		"""Samples K times from eta prior and sets up parameter network input.
+
+		Args:
+			K (int): Number of distributions.
+			param_net_input_type (str): specifies input to param network
+				'eta':        give full eta to parameter network
+				'prior':      part of eta that is prior-dependent
+				'likelihood': part of eta that is likelihood-dependent
+				'data':       the data itself
+			give_hint: (bool): Feed in prior covariance cholesky if true.
+
+		Returns:
+			eta (np.array): K canonical parameters.
+			param_net_inputs (np.array): K corresponding inputs to parameter network.
+			T_x_input (np.array): K corresponding suff stat computation inputs.
+			params (list): K corresponding mean parameterizations.
+			
+		"""
 		datadir = 'data/responses/';
 		_, _, num_param_net_inputs, _ = self.get_efn_dims(param_net_input_type, give_hint);
 		eta = np.zeros((K, self.num_suff_stats));
@@ -1637,13 +1754,18 @@ class LogGaussianCox(PosteriorFamily):
 		"""Maps mean parameters (mu) of distribution to canonical parameters (eta).
 
 		Args:
-			params (dict): Mean parameters
+			params (dict): Mean parameters of distribution.
 			param_net_input_type (str): specifies input to param network
 				'eta':        give full eta to parameter network
+				'prior':      part of eta that is prior-dependent
+				'likelihood': part of eta that is likelihood-dependent
+				'data':       the data itself
 			give_hint: (bool): Feed in prior covariance cholesky if true.
+
 		Returns:
 			eta (np.array): Canonical parameters.
-			param_net_input: Corresponding input to parameter network.
+			param_net_input (np.array): Corresponding input to parameter network.
+			
 		"""
 		
 		mu = params['mu'];
@@ -1676,8 +1798,44 @@ class LogGaussianCox(PosteriorFamily):
 			param_net_input = x.T;
 		return eta, param_net_input;
 
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+				'prior':      Part of eta that is prior-dependent.
+				'likelihood': Part of eta that is likelihood-dependent.
+				'data':       The data itself.
+			give_hint: (bool): give_hint: (bool): Feed in prior covariance cholesky if true.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+
+		"""
+
+		if (give_hint):
+			param_net_inputs_from_prior = self.num_prior_suff_stats + int(self.D*(self.D+1)/2);
+		else:
+			param_net_inputs_from_prior = self.num_prior_suff_stats;
+
+		if (param_net_input_type == 'eta'):
+			num_param_net_inputs = param_net_inputs_from_prior \
+			                       + self.num_likelihood_suff_stats;
+		elif (param_net_input_type == 'prior'):
+			num_param_net_inputs = param_net_inputs_from_prior;
+		elif (param_net_input_type == 'likelihood'):
+			num_param_net_inputs = self.num_likelihood_suff_stats;
+		elif (param_net_input_type == 'data'):
+			num_param_net_inputs = self.D;
+
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
 	def default_eta_dist(self,):
-		"""Description."""
+		"""Construct default eta prior."""
 		return None;
 
 
@@ -1711,24 +1869,6 @@ class SurrogateSD(Family):
 		self.num_suff_stats = int(D+D*(D+1)/2)*T + D*int((T-1)*T/2);
 		self.set_T_x_names();
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		num_param_net_inputs = None;
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 	def set_T_x_names(self,):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
@@ -1749,6 +1889,7 @@ class SurrogateSD(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 		T_x_S = compute_T_x_S(X, self.D, self.T);
 		T_x_D = compute_T_x_D(X, self.D, self.T);
@@ -1758,7 +1899,15 @@ class SurrogateSD(Family):
 		return T_x;
 
 	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples."""
+		"""Compute log base measure of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+
+		Returns:
+			log_h_x (tf.tensor): Log base measure of samples.
+			
+		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
@@ -1766,21 +1915,50 @@ class SurrogateSD(Family):
 		return log_h_x;
 
 	def compute_mu(self, params):
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		mu_S = compute_mu_S(params, self.D, self.T);
 		mu_D = compute_mu_D(params, self.D, self.T);
 		mu = np.concatenate((mu_S, mu_D), 0);
 
 		return mu;
 
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
+		"""
+
+		num_param_net_inputs = None;
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
 	def log_p_np(self, X, params):
 		"""Computes log probability of X given params.
 
 		Args:
-			X (tf.tensor): density network samples
-			params (dict): Mean parameters.
+			X (np.array): Density network samples.
+			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X for params.
+			log_p (np.array): Ground truth probability of X given params.
+
 		"""
 		eps = 1e-6;
 		K,M,D,T = X.shape;
@@ -1791,22 +1969,6 @@ class SurrogateSD(Family):
 		X_DT = np.reshape(np.transpose(X, [0,1,3,2]), [K,M,int(D*T)]);
 		log_p_x = dist.logpdf(X_DT);
 		return log_p_x;
-
-	def approx_KL(self, log_Q, X, params):
-		"""Approximate KL(Q || P).
-
-		Args:
-			log_Q (np.array): log prob of density network samples.
-			X (np.array): Density network samples.
-			params (dict): Mean parameters of target distribution.
-
-		Returns:
-			KL (np.float): KL(Q || P)
-		"""
-
-		log_P = self.log_p_np(X, params);
-		KL = np.mean(log_Q - log_P);
-		return KL;
 
 class SurrogateSED(Family):
 	"""Maximum entropy distribution with smoothness (S), 
@@ -1844,24 +2006,6 @@ class SurrogateSED(Family):
 		self.T_Cs = T_Cs;
 		self.set_T_x_names();
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		num_param_net_inputs = None;
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 	def set_T_x_names(self,):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
@@ -1884,6 +2028,7 @@ class SurrogateSED(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 		T_x_S = compute_T_x_S_E(X, self.D, self.T_Cs);
 		X_no_EP = self.remove_extra_endpoints_tf(X);
@@ -1893,7 +2038,15 @@ class SurrogateSED(Family):
 		return T_x;
 
 	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples."""
+		"""Compute log base measure of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+
+		Returns:
+			log_h_x (tf.tensor): Log base measure of samples.
+			
+		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
@@ -1901,12 +2054,39 @@ class SurrogateSED(Family):
 		return log_h_x;
 
 	def compute_mu(self, params):
-		# compute (S) part of mu
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		mu_S = compute_mu_S_E(params, self.D, self.Tps, self.T_Cs);
 		mu_D = compute_mu_D(params, self.D, self.T)
 		
 		mu = np.concatenate((mu_S, mu_D), 0);
 		return mu;
+
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
+		"""
+
+		num_param_net_inputs = None;
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
 	def remove_extra_endpoints_tf(self, X):
 		X_shape = tf.shape(X);
@@ -1955,24 +2135,6 @@ class GPDirichlet(Family):
 		self.num_suff_stats = D*T + D*int((T-1)*T/2);
 		self.set_T_x_names();
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		num_param_net_inputs = None;
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 	def set_T_x_names(self,):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
@@ -1982,6 +2144,23 @@ class GPDirichlet(Family):
 		set_T_x_Dirich_names(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T);
 
 		return None;
+
+	def map_to_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+
+		"""
+		support_layer = SimplexBijectionLayer();
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
 		"""Compute sufficient statistics of density network samples.
@@ -1993,6 +2172,7 @@ class GPDirichlet(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 		T_x_S = compute_T_x_S(X, self.D, self.T);
 		T_x_D = compute_T_x_Dirich(X, self.D, self.T);
@@ -2002,7 +2182,15 @@ class GPDirichlet(Family):
 		return T_x;
 
 	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples."""
+		"""Compute log base measure of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+
+		Returns:
+			log_h_x (tf.tensor): Log base measure of samples.
+			
+		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
@@ -2010,6 +2198,15 @@ class GPDirichlet(Family):
 		return log_h_x;
 
 	def compute_mu(self, params):
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		alpha = params['alpha'];
 		alpha_0 = np.sum(alpha);
 
@@ -2047,21 +2244,24 @@ class GPDirichlet(Family):
 
 		return mu;
 
-	def map_to_support(self, layers, num_theta_params):
-		"""Augment density network with bijective mapping to support.
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
 
 		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
 
 		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
 		"""
-		support_layer = SimplexBijectionLayer();
-		num_theta_params += count_layer_params(support_layer);
-		layers.append(support_layer);
-		return layers, num_theta_params;
+
+		num_param_net_inputs = None;
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
 
 class GPEDirichlet(Family):
 	"""Maximum entropy distribution with smoothness (GP), endpoints (EP) 
@@ -2099,24 +2299,6 @@ class GPEDirichlet(Family):
 		self.T_Cs = T_Cs;
 		self.set_T_x_names();
 
-	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
-		"""Returns EFN component dimensionalities for the family.
-
-		Args:
-			param_net_input_type (str): specifies input to param network
-				'eta':        give full eta to parameter network
-			give_hint: (bool): Feed in covariance cholesky if true.
-
-		Returns:
-			D_Z (int): dimensionality of density network
-			num_suff_stats: dimensionality of eta
-			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
-		"""
-
-		num_param_net_inputs = None;
-		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
-
 	def set_T_x_names(self,):
 		self.T_x_names = [];
 		self.T_x_names_tf = [];
@@ -2126,6 +2308,23 @@ class GPEDirichlet(Family):
 		set_T_x_Dirich_names_E(self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs);
 		
 		return None;
+
+	def map_to_support(self, layers, num_theta_params):
+		"""Augment density network with bijective mapping to support.
+
+		Args:
+			layers (list): List of ordered normalizing flow layers.
+			num_theta_params (int): Running count of density network parameters.
+
+		Returns:
+			layers (list): layers augmented with final support mapping layer.
+			num_theta_params (int): Updated count of density network parameters.
+
+		"""
+		support_layer = SimplexBijectionLayer();
+		num_theta_params += count_layer_params(support_layer);
+		layers.append(support_layer);
+		return layers, num_theta_params;
 
 	def compute_suff_stats(self, X, Z_by_layer, T_x_input):
 		"""Compute sufficient statistics of density network samples.
@@ -2137,6 +2336,7 @@ class GPEDirichlet(Family):
 
 		Returns:
 			T_x (tf.tensor): Sufficient statistics of samples.
+
 		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -2152,7 +2352,15 @@ class GPEDirichlet(Family):
 		return T_x;
 
 	def compute_log_base_measure(self, X):
-		"""Compute log base measure of density network samples."""
+		"""Compute log base measure of density network samples.
+
+		Args:
+			X (tf.tensor): Density network samples.
+
+		Returns:
+			log_h_x (tf.tensor): Log base measure of samples.
+			
+		"""
 		X_shape = tf.shape(X);
 		K = X_shape[0];
 		M = X_shape[1];
@@ -2160,7 +2368,15 @@ class GPEDirichlet(Family):
 		return log_h_x;
 
 	def compute_mu(self, params):
-		# compute (S) part of mu
+		"""Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+			params (dict): Mean parameters of distributions.
+
+		Returns:
+			mu (np.array): The mean parameterization vector of the exponential family.
+
+		"""
 		kernel = params['kernel'];
 		alpha = params['alpha'];
 
@@ -2206,6 +2422,25 @@ class GPEDirichlet(Family):
 		mu = np.concatenate((mu_S, mu_D), 0);
 		return mu;
 
+	def get_efn_dims(self, param_net_input_type='eta', give_hint=False):
+		"""Returns EFN component dimensionalities for the family.
+
+		Args:
+			param_net_input_type (str): Specifies input to param network.
+				'eta':        Give full eta to parameter network.
+			give_hint: (bool): No hint implemented.
+
+		Returns:
+			D_Z (int): Dimensionality of density network.
+			num_suff_stats: Dimensionality of eta.
+			num_param_net_inputs: Dimensionality of parameter network input.
+			num_T_x_inputs: Dimensionality of suff stat computation input.
+			
+		"""
+
+		num_param_net_inputs = None;
+		return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs;
+
 	def remove_extra_endpoints_tf(self, X):
 		X_shape = tf.shape(X);
 		K = X_shape[0];
@@ -2223,23 +2458,6 @@ class GPEDirichlet(Family):
 			Xs.append(X_i);
 		X_no_EP = tf.concat(Xs, 3);
 		return X_no_EP;
-
-	def map_to_support(self, layers, num_theta_params):
-		"""Augment density network with bijective mapping to support.
-
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
-
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-		"""
-		support_layer = SimplexBijectionLayer();
-		num_theta_params += count_layer_params(support_layer);
-		layers.append(support_layer);
-		return layers, num_theta_params;
-
 
 def family_from_str(exp_fam_str):
 	if (exp_fam_str in ['MultivariateNormal', 'normal', 'multivariate_normal']):
