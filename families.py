@@ -31,7 +31,7 @@ class Family:
 		D_Z (int): Dimensionality of the density network.
 		T (int): Number of time points.
 		num_suff_stats (int): Dimensionality of sufficient statistics vector.
-		num_T_x_inputs (int): Number of param-dependent inputs to suff stat comp
+		num_T_z_inputs (int): Number of param-dependent inputs to suff stat comp
 		                      (only used in HierarchicalDirichlet).
 		constant_base_measure (bool): True if base measure is sample independent.
 		has_log_p (bool): True if a tractable form for sample log density is known.
@@ -52,7 +52,7 @@ class Family:
 
         self.D = D
         self.T = T
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.constant_base_measure = True
         self.has_log_p = False
         if eta_dist is not None:
@@ -65,7 +65,7 @@ class Family:
         """Augment density network with bijective mapping to support."""
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples."""
         raise NotImplementedError()
 
@@ -73,11 +73,11 @@ class Family:
         """Compute the mean parameterization (mu) given the mean parameters."""
         raise NotImplementedError()
 
-    def center_suff_stats_by_mu(self, T_x, mu):
+    def center_suff_stats_by_mu(self, T_z, mu):
         """Center sufficient statistics by the mean parameters mu."""
-        return T_x - tf.expand_dims(tf.expand_dims(mu, 0), 1)
+        return T_z - tf.expand_dims(tf.expand_dims(mu, 0), 1)
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples."""
         raise NotImplementedError()
 
@@ -93,7 +93,7 @@ class Family:
         """Maps mean parameters (mu) of distribution to canonical parameters (eta)."""
         raise NotImplementedError()
 
-    def mu_to_T_x_input(self, params):
+    def mu_to_T_z_input(self, params):
         """Maps mean parameters (mu) of distribution to suff stat computation input.
 		   (only necessary for HierarchicalDirichlet)
 
@@ -101,19 +101,19 @@ class Family:
 			params (dict): Mean parameters.
 
 		Returns:
-			T_x_input (np.array): Param-dependent input.
+			T_z_input (np.array): Param-dependent input.
 
 		"""
 
-        T_x_input = np.array([])
-        return T_x_input
+        T_z_input = np.array([])
+        return T_z_input
 
     def get_efn_dims(self, param_net_input_type="eta", give_hint=False):
         """Returns EFN component dimensionalities for the family."""
         raise NotImplementedError()
 
-    def log_p(self, X, params):
-        """Computes log probability of X given params."""
+    def log_p(self, Z, params):
+        """Computes log probability of Z given params."""
         raise NotImplementedError()
 
     def batch_diagnostics(
@@ -121,8 +121,8 @@ class Family:
         K,
         sess,
         feed_dict,
-        X,
-        log_p_x,
+        Z,
+        log_p_z,
         elbos,
         R2s,
         eta_draw_params,
@@ -133,11 +133,11 @@ class Family:
 		Args:
 			K (int): Number of distributions.
 			sess (tf session): Running tf session.
-			feed_dict (dict): Contains Z0, eta, param_net_input, and T_x_input.
-			X (tf.tensor): Density network samples.
-			log_p_x (tf.tensor): Log probabilities of X.
-			elbos (tf.tensor): ELBOs for each distribution.
-			R2s (tf.tensor): r^2s for each distribution
+			feed_dict (dict): Contains Z0, eta, param_net_input, and T_z_input.
+			Z (log_h_z): Density network samples.
+			log_p_z (tf.Tensor): Log probabilities of Z.
+			elbos (tf.Tensor): ELBOs for each distribution.
+			R2s (tf.Tensor): r^2s for each distribution
 			eta_draw_params (list): Contains mean parameters of each distribution.
 			check_entropy (bool): Print model entropy relative to true entropy.
 
@@ -149,25 +149,24 @@ class Family:
 
 		"""
 
-        _X, _log_p_x, _elbos, _R2s = sess.run([X, log_p_x, elbos, R2s], feed_dict)
+        _Z, _log_p_z, _elbos, _R2s = sess.run([Z, log_p_z, elbos, R2s], feed_dict)
         KLs = []
         for k in range(K):
-            log_p_x_k = _log_p_x[k, :]
-            X_k = _X[k, :, :, 0]
-            # TODO update this for time series
+            log_p_z_k = _log_p_z[k, :]
+            Z_k = _Z[k, :, :, 0]
             params_k = eta_draw_params[k]
-            KL_k = self.approx_KL(log_p_x_k, X_k, params_k)
+            KL_k = self.approx_KL(log_p_z_k, Z_k, params_k)
             KLs.append(KL_k)
             if checkEntropy:
-                self.check_entropy(log_p_x_k, params_k)
-        return _elbos, _R2s, KLs, _X
+                self.check_entropy(log_p_z_k, params_k)
+        return np.array(_elbos), np.array(_R2s), np.array(KLs), _Z
 
-    def approx_KL(self, log_Q, X, params):
+    def approx_KL(self, log_Q, Z, params):
         """Approximate KL(Q || P).
 
 		Args:
 			log_Q (np.array): log prob of density network samples.
-			X (np.array): Density network samples.
+			Z (np.array): Density network samples.
 			params (dict): Mean parameters of target distribution.
 
 		Returns:
@@ -175,7 +174,7 @@ class Family:
 			
 		"""
 
-        log_P = self.log_p_np(X, params)
+        log_P = self.log_p_np(Z, params)
         KL = np.mean(log_Q - log_P)
         return KL
 
@@ -225,7 +224,7 @@ class PosteriorFamily(Family):
 		D (int): Dimensionality of the exponential family.
 		T (int): Number of time points.
 		D_Z (int): Dimensionality of the density network.
-		num_T_x_inputs (int): Number of param-dependent inputs to suff stat comp
+		num_T_z_inputs (int): Number of param-dependent inputs to suff stat comp
 		                      (only used in HierarchicalDirichlet).
 		constant_base_measure (bool): True if base measure is sample independent.
 		has_log_p (bool): True if a tractable form for sample log density is known.
@@ -261,13 +260,13 @@ class PosteriorFamily(Family):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 
 		"""
         if give_hint:
@@ -280,7 +279,7 @@ class PosteriorFamily(Family):
             num_param_net_inputs = self.num_likelihood_suff_stats
         elif param_net_input_type == "data":
             num_param_net_inputs = self.D
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
 
 class MultivariateNormal(Family):
@@ -301,33 +300,33 @@ class MultivariateNormal(Family):
         self.num_suff_stats = int(D + D * (D + 1) / 2)
         self.has_log_p = True
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
         cov_con_mask = np.triu(np.ones((self.D, self.D), dtype=np.bool_), 0)
-        T_x_mean = tf.reduce_mean(X, 3)
-        X_KMTD = tf.transpose(X, [0, 1, 3, 2])
+        T_z_mean = tf.reduce_mean(Z, 3)
+        Z_KMTD = tf.transpose(Z, [0, 1, 3, 2])
         # samps x D
-        XXT_KMTDD = tf.matmul(tf.expand_dims(X_KMTD, 4), tf.expand_dims(X_KMTD, 3))
-        T_x_cov_KMTDZ = tf.transpose(
-            tf.boolean_mask(tf.transpose(XXT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask),
+        ZZT_KMTDD = tf.matmul(tf.expand_dims(Z_KMTD, 4), tf.expand_dims(Z_KMTD, 3))
+        T_z_cov_KMTDZ = tf.transpose(
+            tf.boolean_mask(tf.transpose(ZZT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask),
             [1, 2, 3, 0],
         )
-        T_x_cov = tf.reduce_mean(T_x_cov_KMTDZ, 2)
-        T_x = tf.concat((T_x_mean, T_x_cov), axis=2)
-        return T_x
+        T_z_cov = tf.reduce_mean(T_z_cov_KMTDZ, 2)
+        T_z = tf.concat((T_z_mean, T_z_cov), axis=2)
+        return T_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -352,21 +351,21 @@ class MultivariateNormal(Family):
         mu = np.concatenate((mu_mu, mu_Sigma), 0)
         return mu
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			X (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = -(self.D / 2) * np.log(2 * np.pi) * tf.ones((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = -(self.D / 2) * np.log(2 * np.pi) * tf.ones((K, M), dtype=tf.float64)
+        return log_h_z
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -390,12 +389,12 @@ class MultivariateNormal(Family):
 			K (int): Number of distributions.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in covariance cholesky if true.
+			give_hint (bool): Feed in covariance cholesky if true.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -404,7 +403,7 @@ class MultivariateNormal(Family):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         params = []
         for k in range(K):
             mu_k, Sigma_k = self.eta_sampler()
@@ -413,8 +412,8 @@ class MultivariateNormal(Family):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, give_hint
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint="False"):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -423,7 +422,7 @@ class MultivariateNormal(Family):
 			params (dict): Mean parameters of distribution.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in covariance cholesky if true.
+			give_hint (bool): Feed in covariance cholesky if true.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -463,13 +462,13 @@ class MultivariateNormal(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in covariance cholesky and mean if true.
+			give_hint (bool): Feed in covariance cholesky and mean if true.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 
 		"""
 
@@ -481,13 +480,13 @@ class MultivariateNormal(Family):
             num_param_net_inputs = int(self.D + self.D * (self.D + 1) / 2)
         else:
             num_param_net_inputs = int(self.D + self.D * (self.D + 1) / 2)
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def log_p(self, X, params):
-        """Computes log probability of X given params.
+    def log_p(self, Z, params):
+        """Computes log probability of Z given params.
 
 		Args:
-			X (tf.tensor): Density network samples
+			Z (tf.Tensor): Density network samples
 			params (dict): Mean parameters of distribution.
 
 		Returns:
@@ -502,8 +501,8 @@ class MultivariateNormal(Family):
         )
         # dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma);
         assert self.T == 1
-        log_p_x = dist.log_prob(X[:, :, :, 0])
-        return log_p_x
+        log_p_z = dist.log_prob(Z[:, :, :, 0])
+        return log_p_z
 
     def log_p_np(self, X, params):
         """Computes log probability of X given params.
@@ -550,7 +549,7 @@ class Dirichlet(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -586,26 +585,26 @@ class Dirichlet(Family):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_X = tf.log(X)
-        T_x_log = tf.reduce_mean(log_X, 3)
-        T_x = T_x_log
-        return T_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_Z = tf.log(Z)
+        T_z_log = tf.reduce_mean(log_Z, 3)
+        T_z = T_z_log
+        return T_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -623,19 +622,19 @@ class Dirichlet(Family):
         mu = psi(alpha) - phi_0
         return mu
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        log_h_x = -tf.reduce_sum(tf.log(X), [2])
-        return log_h_x[:, :, 0]
+        log_h_z = -tf.reduce_sum(tf.log(Z), [2])
+        return log_h_z[:, :, 0]
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -654,12 +653,12 @@ class Dirichlet(Family):
 			K (int): Number of distributions.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -668,7 +667,7 @@ class Dirichlet(Family):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         params = []
         for k in range(K):
             alpha_k = self.eta_sampler()
@@ -677,8 +676,8 @@ class Dirichlet(Family):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, give_hint
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -687,7 +686,7 @@ class Dirichlet(Family):
 			params (dict): Mean parameters of distribution.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -708,57 +707,57 @@ class Dirichlet(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
         if give_hint or (not param_net_input_type == "eta"):
             raise NotImplementedError()
         num_param_net_inputs = self.D
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def log_p(self, X, params):
-        """Computes log probability of X given params.
+    def log_p(self, Z, params):
+        """Computes log probability of Z given params.
 
 		Args:
-			X (tf.tensor): Density network samples
+			Z (tf.Tensor): Density network samples
 			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X given params.
+			log_p (np.array): Ground truth probability of Z given params.
 			
 		"""
 
         alpha = params["alpha"]
         dist = tf.contrib.distributions.Dirichlet(alpha)
         assert self.T == 1
-        log_p_x = dist.log_prob(X[:, :, :, 0])
-        return log_p_x
+        log_p_z = dist.log_prob(Z[:, :, :, 0])
+        return log_p_z
 
-    def log_p_np(self, X, params):
-        """Computes log probability of X given params.
+    def log_p_np(self, Z, params):
+        """Computes log probability of Z given params.
 
 		Args:
-			X (np.array): Density network samples.
+			Z (np.array): Density network samples.
 			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X given params.
+			log_p (np.array): Ground truth probability of Z given params.
 
 		"""
         nonzero_simplex_eps = 1e-32
         alpha = params["alpha"]
         dist = scipy.stats.dirichlet(np.float64(alpha))
-        X = np.float64(X) + nonzero_simplex_eps
-        X = X / np.expand_dims(np.sum(X, 1), 1)
-        log_p_x = dist.logpdf(X.T)
-        return log_p_x
+        Z = np.float64(Z) + nonzero_simplex_eps
+        Z = Z / np.expand_dims(np.sum(Z, 1), 1)
+        log_p_z = dist.logpdf(Z.T)
+        return log_p_z
 
     def true_entropy(self, params):
         """Calculates true entropy of the distribution from mean parameters.
@@ -785,7 +784,7 @@ class InvWishart(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -822,58 +821,58 @@ class InvWishart(Family):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
         cov_con_mask = np.triu(np.ones((self.sqrtD, self.sqrtD), dtype=np.bool_), 0)
         chol_mask = np.tril(np.ones((self.sqrtD, self.sqrtD), dtype=np.bool_), 0)
 
-        X_KMDsqrtDsqrtD = tf.reshape(X, (K, M, self.sqrtD, self.sqrtD))
-        X_inv = tf.matrix_inverse(X_KMDsqrtDsqrtD)
-        T_x_inv = tf.transpose(
-            tf.boolean_mask(tf.transpose(X_inv, [2, 3, 0, 1]), cov_con_mask), [1, 2, 0]
+        Z_KMDsqrtDsqrtD = tf.reshape(Z, (K, M, self.sqrtD, self.sqrtD))
+        Z_inv = tf.matrix_inverse(Z_KMDsqrtDsqrtD)
+        T_z_inv = tf.transpose(
+            tf.boolean_mask(tf.transpose(Z_inv, [2, 3, 0, 1]), cov_con_mask), [1, 2, 0]
         )
         # We already have the Chol factor from earlier in the graph
         # zchol = Z_by_layer[-2];
         # zchol_KMD_Z = zchol[:,:,:,0]; # generalize this for more time points
-        X_eigs = tf.self_adjoint_eigvals(X_KMDsqrtDsqrtD)
+        Z_eigs = tf.self_adjoint_eigvals(Z_KMDsqrtDsqrtD)
         # zchol_KMD = tf.transpose(tf.boolean_mask(tf.transpose(zchol_KMsqrtDsqrtD, [2,3,0,1]), chol_mask), [1, 2, 0]);
 
-        T_x_log_det = 2 * tf.reduce_sum(tf.log(X_eigs), 2)
-        T_x_log_det = tf.expand_dims(T_x_log_det, 2)
-        T_x = tf.concat((T_x_inv, T_x_log_det), axis=2)
-        return T_x
+        T_z_log_det = 2 * tf.reduce_sum(tf.log(Z_eigs), 2)
+        T_z_log_det = tf.expand_dims(T_z_log_det, 2)
+        T_z = tf.concat((T_z_inv, T_z_log_det), axis=2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.zeros((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        return log_h_z
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -899,12 +898,12 @@ class InvWishart(Family):
 			K (int): Number of distributions.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in inverse Psi cholesky if True.
+			give_hint (bool): Feed in inverse Psi cholesky if True.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -913,7 +912,7 @@ class InvWishart(Family):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
 
         params = []
         for k in range(K):
@@ -923,8 +922,8 @@ class InvWishart(Family):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, give_hint
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -933,7 +932,7 @@ class InvWishart(Family):
 			params (dict): Mean parameters of distribution.
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in inverse Psi cholesky if True.
+			give_hint (bool): Feed in inverse Psi cholesky if True.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -967,13 +966,13 @@ class InvWishart(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): Feed in inverse Psi cholesky if True.
+			give_hint (bool): Feed in inverse Psi cholesky if True.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
@@ -985,28 +984,28 @@ class InvWishart(Family):
         else:
             num_param_net_inputs = self.num_suff_stats
 
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def log_p_np(self, X, params):
-        """Computes log probability of X given params.
+    def log_p_np(self, Z, params):
+        """Computes log probability of Z given params.
 
 		Args:
-			X (np.array): Density network samples.
+			Z (np.array): Density network samples.
 			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X given params.
+			log_p (np.array): Ground truth probability of Z given params.
 
 		"""
 
-        batch_size = X.shape[0]
+        batch_size = Z.shape[0]
         Psi = params["Psi"]
         m = params["m"]
-        X = np.reshape(X, [batch_size, self.sqrtD, self.sqrtD])
-        log_p_x = scipy.stats.invwishart.logpdf(
-            np.transpose(X, [1, 2, 0]), float(m), Psi
+        Z = np.reshape(Z, [batch_size, self.sqrtD, self.sqrtD])
+        log_p_z = scipy.stats.invwishart.logpdf(
+            np.transpose(Z, [1, 2, 0]), float(m), Psi
         )
-        return log_p_x
+        return log_p_z
 
 
 class HierarchicalDirichlet(PosteriorFamily):
@@ -1019,7 +1018,7 @@ class HierarchicalDirichlet(PosteriorFamily):
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -1037,7 +1036,7 @@ class HierarchicalDirichlet(PosteriorFamily):
         self.num_prior_suff_stats = D + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
-        self.num_T_x_inputs = 1
+        self.num_T_z_inputs = 1
 
     def map_to_support(self, layers, num_theta_params):
         """Augment density network with bijective mapping to support.
@@ -1056,52 +1055,51 @@ class HierarchicalDirichlet(PosteriorFamily):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        logz = tf.log(X[:, :, :, 0])
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        logz = tf.log(Z[:, :, :, 0])
         const = -tf.ones((K, M, 1), tf.float64)
-        beta = tf.expand_dims(T_x_input, 1)
-        betaz = tf.multiply(beta, X[:, :, :, 0])
+        beta = tf.expand_dims(T_z_input, 1)
+        betaz = tf.multiply(beta, Z[:, :, :, 0])
         log_gamma_beta_z = tf.lgamma(betaz)
         log_gamma_beta = tf.lgamma(beta)
-        # log(gamma(beta*sum(x_i))) = log(gamma(beta))
         log_Beta_beta_z = (
             tf.expand_dims(tf.reduce_sum(log_gamma_beta_z, 2), 2) - log_gamma_beta
         )
-        T_x = tf.concat((logz, const, betaz, log_Beta_beta_z), 2)
-        return T_x
+        T_z = tf.concat((logz, const, betaz, log_Beta_beta_z), 2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.zeros((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        return log_h_z
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -1129,12 +1127,12 @@ class HierarchicalDirichlet(PosteriorFamily):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -1143,7 +1141,7 @@ class HierarchicalDirichlet(PosteriorFamily):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         Nmean = 10
         x_eps = 1e-16
         params = []
@@ -1163,8 +1161,8 @@ class HierarchicalDirichlet(PosteriorFamily):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, False
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -1176,7 +1174,7 @@ class HierarchicalDirichlet(PosteriorFamily):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -1211,19 +1209,19 @@ class HierarchicalDirichlet(PosteriorFamily):
             param_net_input = x.T
         return eta, param_net_input
 
-    def mu_to_T_x_input(self, params):
+    def mu_to_T_z_input(self, params):
         """Maps mean parameters (mu) of distribution to suff stat comp input.
 
 		Args:
 			params (dict): Mean parameters of distributions.
 
 		Returns:
-			T_x_input (np.array): Param-dependent input.
+			T_z_input (np.array): Param-dependent input.
 		"""
 
         beta = params["beta"]
-        T_x_input = np.array([beta])
-        return T_x_input
+        T_z_input = np.array([beta])
+        return T_z_input
 
 
 class DirichletMultinomial(PosteriorFamily):
@@ -1236,7 +1234,7 @@ class DirichletMultinomial(PosteriorFamily):
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -1254,7 +1252,7 @@ class DirichletMultinomial(PosteriorFamily):
         self.num_prior_suff_stats = D + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
 
     def map_to_support(self, layers, num_theta_params):
         """Augment density network with bijective mapping to support.
@@ -1273,45 +1271,45 @@ class DirichletMultinomial(PosteriorFamily):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        logz = tf.log(X[:, :, :, 0])
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        logz = tf.log(Z[:, :, :, 0])
         const = -tf.ones((K, M, 1), tf.float64)
         zeros = -tf.zeros((K, M, 1), tf.float64)
-        T_x = tf.concat((logz, const, logz, zeros), 2)
-        return T_x
+        T_z = tf.concat((logz, const, logz, zeros), 2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.zeros((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        return log_h_z
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -1333,12 +1331,12 @@ class DirichletMultinomial(PosteriorFamily):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -1347,7 +1345,7 @@ class DirichletMultinomial(PosteriorFamily):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         N = 1
         x_eps = 1e-16
         params = []
@@ -1358,8 +1356,8 @@ class DirichletMultinomial(PosteriorFamily):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, False
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -1371,7 +1369,7 @@ class DirichletMultinomial(PosteriorFamily):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -1415,7 +1413,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -1433,7 +1431,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         self.num_prior_suff_stats = int(D + D * (D + 1) / 2) + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.prior_family = MultivariateNormal(D, T)
 
     def map_to_support(self, layers, num_theta_params):
@@ -1453,46 +1451,46 @@ class TruncatedNormalPoisson(PosteriorFamily):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        T_x_prior = self.prior_family.compute_suff_stats(X, Z_by_layer, T_x_input)
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
         const = -tf.ones((K, M, 1), tf.float64)
-        logz = tf.log(X[:, :, :, 0])
-        sumz = tf.expand_dims(tf.reduce_sum(X[:, :, :, 0], 2), 2)
-        T_x = tf.concat((T_x_prior, const, logz, sumz), 2)
-        return T_x
+        logz = tf.log(Z[:, :, :, 0])
+        sumz = tf.expand_dims(tf.reduce_sum(Z[:, :, :, 0], 2), 2)
+        T_z = tf.concat((T_z_prior, const, logz, sumz), 2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.zeros((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        return log_h_z
 
     def draw_etas(self, K, param_net_input_type="eta", give_hint=False):
         """Samples K times from eta prior and sets up parameter network input.
@@ -1504,12 +1502,12 @@ class TruncatedNormalPoisson(PosteriorFamily):
 				'prior':      part of eta that is prior-dependent
 				'likelihood': part of eta that is likelihood-dependent
 				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -1518,7 +1516,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         nneurons = 83
         noris = 12
         Ts = 0.02
@@ -1549,8 +1547,8 @@ class TruncatedNormalPoisson(PosteriorFamily):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, give_hint
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -1562,7 +1560,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
 				'prior':      part of eta that is prior-dependent
 				'likelihood': part of eta that is likelihood-dependent
 				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -1618,13 +1616,13 @@ class TruncatedNormalPoisson(PosteriorFamily):
 				'prior':      part of eta that is prior-dependent
 				'likelihood': part of eta that is likelihood-dependent
 				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			D_Z (int): dimensionality of density network
 			num_suff_stats: dimensionality of eta
 			num_param_net_inputs: dimensionality of param net input
-			num_T_x_inputs: dimensionality of suff stat comp input
+			num_T_z_inputs: dimensionality of suff stat comp input
 		"""
 
         if give_hint:
@@ -1645,7 +1643,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         elif param_net_input_type == "data":
             num_param_net_inputs = self.D
 
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
 
 class LogGaussianCox(PosteriorFamily):
@@ -1658,7 +1656,7 @@ class LogGaussianCox(PosteriorFamily):
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -1676,7 +1674,7 @@ class LogGaussianCox(PosteriorFamily):
         self.num_prior_suff_stats = int(D + D * (D + 1) / 2) + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.prior_family = MultivariateNormal(D, T)
         self.prior = prior
         self.data_num_resps = None
@@ -1700,46 +1698,46 @@ class LogGaussianCox(PosteriorFamily):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
 
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        T_x_prior = self.prior_family.compute_suff_stats(X, Z_by_layer, T_x_input)
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
         const = -tf.ones((K, M, 1), tf.float64)
-        z = X[:, :, :, 0]
-        sum_exp_z = tf.expand_dims(tf.reduce_sum(tf.exp(X[:, :, :, 0]), 2), 2)
-        T_x = tf.concat((T_x_prior, const, z, sum_exp_z), 2)
-        return T_x
+        z = Z[:, :, :, 0]
+        sum_exp_z = tf.expand_dims(tf.reduce_sum(tf.exp(Z[:, :, :, 0]), 2), 2)
+        T_z = tf.concat((T_z_prior, const, z, sum_exp_z), 2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
         assert self.T == 1
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.zeros((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        return log_h_z
 
     def load_data(self,):
         datadir = "data/responses/"
@@ -1820,12 +1818,12 @@ class LogGaussianCox(PosteriorFamily):
 				'prior':      part of eta that is prior-dependent
 				'likelihood': part of eta that is likelihood-dependent
 				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			eta (np.array): K canonical parameters.
 			param_net_inputs (np.array): K corresponding inputs to parameter network.
-			T_x_input (np.array): K corresponding suff stat computation inputs.
+			T_z_input (np.array): K corresponding suff stat computation inputs.
 			params (list): K corresponding mean parameterizations.
 			
 		"""
@@ -1835,7 +1833,7 @@ class LogGaussianCox(PosteriorFamily):
         )
         eta = np.zeros((K, self.num_suff_stats))
         param_net_inputs = np.zeros((K, num_param_net_inputs))
-        T_x_input = np.zeros((K, self.num_T_x_inputs))
+        T_z_input = np.zeros((K, self.num_T_z_inputs))
         Ts = 0.02
         mean_log_FR = -2.5892
         var_log_FR = 0.4424
@@ -1870,8 +1868,8 @@ class LogGaussianCox(PosteriorFamily):
             eta[k, :], param_net_inputs[k, :] = self.mu_to_eta(
                 params_k, param_net_input_type, give_hint
             )
-            T_x_input[k, :] = self.mu_to_T_x_input(params_k)
-        return eta, param_net_inputs, T_x_input, params
+            T_z_input[k, :] = self.mu_to_T_z_input(params_k)
+        return eta, param_net_inputs, T_z_input, params
 
     def mu_to_eta(self, params, param_net_input_type="eta", give_hint=False):
         """Maps mean parameters (mu) of distribution to canonical parameters (eta).
@@ -1883,7 +1881,7 @@ class LogGaussianCox(PosteriorFamily):
 				'prior':      part of eta that is prior-dependent
 				'likelihood': part of eta that is likelihood-dependent
 				'data':       the data itself
-			give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			eta (np.array): Canonical parameters.
@@ -1939,13 +1937,13 @@ class LogGaussianCox(PosteriorFamily):
 				'prior':      Part of eta that is prior-dependent.
 				'likelihood': Part of eta that is likelihood-dependent.
 				'data':       The data itself.
-			give_hint: (bool): give_hint: (bool): Feed in prior covariance cholesky if true.
+			give_hint (bool): Feed in prior covariance cholesky if true.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 
 		"""
 
@@ -1967,7 +1965,7 @@ class LogGaussianCox(PosteriorFamily):
         elif param_net_input_type == "data":
             num_param_net_inputs = self.D
 
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
     def default_eta_dist(self,):
         """Construct default eta prior."""
@@ -1982,7 +1980,7 @@ class SurrogateSD(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -1996,61 +1994,61 @@ class SurrogateSD(Family):
         self.name = "SurrogateSD"
         self.D = D
         self.T = T
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.constant_base_measure = True
         self.has_log_p = True
         self.D_Z = D
         self.num_suff_stats = int(D + D * (D + 1) / 2) * T + D * int((T - 1) * T / 2)
-        self.set_T_x_names()
+        self.set_T_z_names()
 
-    def set_T_x_names(self,):
-        self.T_x_names = []
-        self.T_x_names_tf = []
-        self.T_x_group_names = []
+    def set_T_z_names(self,):
+        self.T_z_names = []
+        self.T_z_names_tf = []
+        self.T_z_group_names = []
 
-        set_T_x_S_names(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T
+        set_T_z_S_names(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T
         )
-        set_T_x_D_names(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T
+        set_T_z_D_names(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T
         )
 
         return None
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
-        T_x_S = compute_T_x_S(X, self.D, self.T)
-        T_x_D = compute_T_x_D(X, self.D, self.T)
+        T_z_S = compute_T_z_S(Z, self.D, self.T)
+        T_z_D = compute_T_z_D(Z, self.D, self.T)
         # collect suff stats
-        T_x = tf.concat((T_x_S, T_x_D), axis=2)
+        T_z = tf.concat((T_z_S, T_z_D), axis=2)
 
-        return T_x
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.ones((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        return log_h_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -2074,39 +2072,39 @@ class SurrogateSD(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
         num_param_net_inputs = None
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def log_p_np(self, X, params):
-        """Computes log probability of X given params.
+    def log_p_np(self, Z, params):
+        """Computes log probability of Z given params.
 
 		Args:
-			X (np.array): Density network samples.
+			Z (np.array): Density network samples.
 			params (dict): Mean parameters of distribution.
 
 		Returns:
-			log_p (np.array): Ground truth probability of X given params.
+			log_p (np.array): Ground truth probability of Z given params.
 
 		"""
         eps = 1e-6
-        K, M, D, T = X.shape
+        K, M, D, T = Z.shape
         mu = params["mu_ME"]
         Sigma = params["Sigma_ME"]
         Sigma += eps * np.eye(D * T)
         dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma)
-        X_DT = np.reshape(np.transpose(X, [0, 1, 3, 2]), [K, M, int(D * T)])
-        log_p_x = dist.logpdf(X_DT)
-        return log_p_x
+        Z_DT = np.reshape(np.transpose(Z, [0, 1, 3, 2]), [K, M, int(D * T)])
+        log_p_z = dist.logpdf(Z_DT)
+        return log_p_z
 
 
 class SurrogateSED(Family):
@@ -2118,7 +2116,7 @@ class SurrogateSED(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -2132,7 +2130,7 @@ class SurrogateSED(Family):
         self.name = "SurrogateSED"
         self.D = D
         self.T = T  # total number of time points across all conditions
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.constant_base_measure = True
         self.has_log_p = False
         self.D_Z = D
@@ -2143,58 +2141,58 @@ class SurrogateSED(Family):
         self.num_suff_stats = int(mu_S_len + mu_D_len)
         self.Tps = Tps
         self.T_Cs = T_Cs
-        self.set_T_x_names()
+        self.set_T_z_names()
 
-    def set_T_x_names(self,):
-        self.T_x_names = []
-        self.T_x_names_tf = []
-        self.T_x_group_names = []
+    def set_T_z_names(self,):
+        self.T_z_names = []
+        self.T_z_names_tf = []
+        self.T_z_group_names = []
         C = len(self.T_Cs)
         count = 0
 
-        set_T_x_S_names_E(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs
+        set_T_z_S_names_E(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T_Cs
         )
-        set_T_x_D_names_E(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs
+        set_T_z_D_names_E(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T_Cs
         )
 
         return None
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
-        T_x_S = compute_T_x_S_E(X, self.D, self.T_Cs)
-        X_no_EP = self.remove_extra_endpoints_tf(X)
-        T_x_D = compute_T_x_D(X_no_EP, self.D, self.T)
+        T_z_S = compute_T_z_S_E(Z, self.D, self.T_Cs)
+        Z_no_EP = self.remove_extra_endpoints_tf(Z)
+        T_z_D = compute_T_z_D(Z_no_EP, self.D, self.T)
         # collect suff stats
-        T_x = tf.concat((T_x_S, T_x_D), axis=2)
-        return T_x
+        T_z = tf.concat((T_z_S, T_z_D), axis=2)
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.ones((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        return log_h_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -2218,36 +2216,36 @@ class SurrogateSED(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
         num_param_net_inputs = None
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def remove_extra_endpoints_tf(self, X):
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
+    def remove_extra_endpoints_tf(self, Z):
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
         C = len(self.T_Cs)
-        Xs = []
+        Zs = []
         t_ind = 0
         for i in range(C):
             T_C_i = self.T_Cs[i]
             if i == 0:
-                X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, T_C_i])
+                Z_i = tf.slice(Z, [0, 0, 0, 0], [K, M, self.D, T_C_i])
             else:
-                X_i = tf.slice(X, [0, 0, 0, t_ind + 1], [K, M, self.D, T_C_i - 2])
+                Z_i = tf.slice(Z, [0, 0, 0, t_ind + 1], [K, M, self.D, T_C_i - 2])
             t_ind = t_ind + T_C_i
-            Xs.append(X_i)
-        X_no_EP = tf.concat(Xs, 3)
-        return X_no_EP
+            Zs.append(Z_i)
+        Z_no_EP = tf.concat(Zs, 3)
+        return Z_no_EP
 
 
 class GPDirichlet(Family):
@@ -2258,7 +2256,7 @@ class GPDirichlet(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -2273,22 +2271,22 @@ class GPDirichlet(Family):
         self.D = D
         self.T = T
         self.D_Z = D - 1
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.constant_base_measure = False
         self.has_log_p = False
         self.num_suff_stats = D * T + D * int((T - 1) * T / 2)
-        self.set_T_x_names()
+        self.set_T_z_names()
 
-    def set_T_x_names(self,):
-        self.T_x_names = []
-        self.T_x_names_tf = []
-        self.T_x_group_names = []
+    def set_T_z_names(self,):
+        self.T_z_names = []
+        self.T_z_names_tf = []
+        self.T_z_group_names = []
 
-        set_T_x_S_names(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T
+        set_T_z_S_names(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T
         )
-        set_T_x_Dirich_names(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T
+        set_T_z_Dirich_names(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T
         )
 
         return None
@@ -2310,40 +2308,40 @@ class GPDirichlet(Family):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
-        T_x_S = compute_T_x_S(X, self.D, self.T)
-        T_x_D = compute_T_x_Dirich(X, self.D, self.T)
+        T_z_S = compute_T_z_S(Z, self.D, self.T)
+        T_z_D = compute_T_z_Dirich(Z, self.D, self.T)
         # collect suff stats
-        T_x = tf.concat((T_x_S, T_x_D), axis=2)
+        T_z = tf.concat((T_z_S, T_z_D), axis=2)
 
-        return T_x
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.ones((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        return log_h_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -2399,18 +2397,19 @@ class GPDirichlet(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint
+             (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
         num_param_net_inputs = None
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
 
 class GPEDirichlet(Family):
@@ -2422,7 +2421,7 @@ class GPEDirichlet(Family):
 		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_suff_stats (int): total number of suff stats
-		num_T_x_inputs (int): number of param-dependent inputs to suff stat comp.
+		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
@@ -2436,7 +2435,7 @@ class GPEDirichlet(Family):
         self.name = "GPEDirichlet"
         self.D = D
         self.T = T
-        self.num_T_x_inputs = 0
+        self.num_T_z_inputs = 0
         self.constant_base_measure = False
         self.has_log_p = False
         self.D_Z = D - 1
@@ -2447,18 +2446,18 @@ class GPEDirichlet(Family):
         self.num_suff_stats = int(mu_S_len + mu_D_len)
         self.Tps = Tps
         self.T_Cs = T_Cs
-        self.set_T_x_names()
+        self.set_T_z_names()
 
-    def set_T_x_names(self,):
-        self.T_x_names = []
-        self.T_x_names_tf = []
-        self.T_x_group_names = []
+    def set_T_z_names(self,):
+        self.T_z_names = []
+        self.T_z_names_tf = []
+        self.T_z_group_names = []
 
-        set_T_x_S_names_E(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs
+        set_T_z_S_names_E(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T_Cs
         )
-        set_T_x_Dirich_names_E(
-            self.T_x_names, self.T_x_names_tf, self.T_x_group_names, self.D, self.T_Cs
+        set_T_z_Dirich_names_E(
+            self.T_z_names, self.T_z_names_tf, self.T_z_group_names, self.D, self.T_Cs
         )
 
         return None
@@ -2480,46 +2479,46 @@ class GPEDirichlet(Family):
         layers.append(support_layer)
         return layers, num_theta_params
 
-    def compute_suff_stats(self, X, Z_by_layer, T_x_input):
+    def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 			Z_by_layer (list): List of layer activations in density network.
-			T_x_input (tf.tensor): Param-dependent input.
+			T_z_input (tf.Tensor): Param-dependent input.
 
 		Returns:
-			T_x (tf.tensor): Sufficient statistics of samples.
+			T_z (tf.Tensor): Sufficient statistics of samples.
 
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
 
-        T_x_S = compute_T_x_S_E(X, self.D, self.T_Cs)
-        X_no_EP = self.remove_extra_endpoints_tf(X)
-        T_x_D = compute_T_x_Dirich(X_no_EP, self.D, self.T)
+        T_z_S = compute_T_z_S_E(Z, self.D, self.T_Cs)
+        Z_no_EP = self.remove_extra_endpoints_tf(Z)
+        T_z_D = compute_T_z_Dirich(Z_no_EP, self.D, self.T)
 
         # collect suff stats
-        T_x = tf.concat((T_x_S, T_x_D), axis=2)
+        T_z = tf.concat((T_z_S, T_z_D), axis=2)
 
-        return T_x
+        return T_z
 
-    def compute_log_base_measure(self, X):
+    def compute_log_base_measure(self, Z):
         """Compute log base measure of density network samples.
 
 		Args:
-			X (tf.tensor): Density network samples.
+			Z (tf.Tensor): Density network samples.
 
 		Returns:
-			log_h_x (tf.tensor): Log base measure of samples.
+			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
-        log_h_x = tf.ones((K, M), dtype=tf.float64)
-        return log_h_x
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
+        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        return log_h_z
 
     def compute_mu(self, params):
         """Compute the mean parameterization (mu) given the mean parameters.
@@ -2584,36 +2583,36 @@ class GPEDirichlet(Family):
 		Args:
 			param_net_input_type (str): Specifies input to param network.
 				'eta':        Give full eta to parameter network.
-			give_hint: (bool): No hint implemented.
+			give_hint (bool): No hint implemented.
 
 		Returns:
 			D_Z (int): Dimensionality of density network.
 			num_suff_stats: Dimensionality of eta.
 			num_param_net_inputs: Dimensionality of parameter network input.
-			num_T_x_inputs: Dimensionality of suff stat computation input.
+			num_T_z_inputs: Dimensionality of suff stat computation input.
 			
 		"""
 
         num_param_net_inputs = None
-        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_x_inputs
+        return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
-    def remove_extra_endpoints_tf(self, X):
-        X_shape = tf.shape(X)
-        K = X_shape[0]
-        M = X_shape[1]
+    def remove_extra_endpoints_tf(self, Z):
+        Z_shape = tf.shape(Z)
+        K = Z_shape[0]
+        M = Z_shape[1]
         C = len(self.T_Cs)
-        Xs = []
+        Zs = []
         t_ind = 0
         for i in range(C):
             T_C_i = self.T_Cs[i]
             if i == 0:
-                X_i = tf.slice(X, [0, 0, 0, 0], [K, M, self.D, T_C_i])
+                Z_i = tf.slice(Z, [0, 0, 0, 0], [K, M, self.D, T_C_i])
             else:
-                X_i = tf.slice(X, [0, 0, 0, t_ind + 1], [K, M, self.D, T_C_i - 2])
+                Z_i = tf.slice(Z, [0, 0, 0, t_ind + 1], [K, M, self.D, T_C_i - 2])
             t_ind = t_ind + T_C_i
-            Xs.append(X_i)
-        X_no_EP = tf.concat(Xs, 3)
-        return X_no_EP
+            Zs.append(Z_i)
+        Z_no_EP = tf.concat(Zs, 3)
+        return Z_no_EP
 
 
 def family_from_str(exp_fam_str):
@@ -2653,52 +2652,52 @@ def compute_mu_S_len(D, T_Cs):
     return int(mu_S_len)
 
 
-def set_T_x_S_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+def set_T_z_S_names(T_z_names, T_z_names_tf, T_z_group_names, D, T):
     # autocovariance by dimension E[x_cda x_cdb]
     for d in range(D):
         for t1 in range(T):
             for t2 in range(t1 + 1, T):
-                T_x_names.append(
+                T_z_names.append(
                     "$x_{%d,%d}$ $x_{%d,%d}$" % (d + 1, t1 + 1, d + 1, t2 + 1)
                 )
-                T_x_names_tf.append("x_%d,%d x_%d,%d" % (d + 1, t1 + 1, d + 1, t2 + 1))
-                T_x_group_names.append(
+                T_z_names_tf.append("x_%d,%d x_%d,%d" % (d + 1, t1 + 1, d + 1, t2 + 1))
+                T_z_group_names.append(
                     "$x_{%d,t}$ $x_{%d,t+%d}$" % (d + 1, d + 1, int(abs(t2 - t1)))
                 )
     return None
 
 
-def set_T_x_D_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+def set_T_z_D_names(T_z_names, T_z_names_tf, T_z_group_names, D, T):
     # mean E[x_dt]
     for i in range(D):
         for t in range(T):
-            T_x_names.append("$x_{%d,%d}$" % (i + 1, t + 1))
-            T_x_names_tf.append("x_%d,%d" % (i + 1, t + 1))
-            T_x_group_names.append("$x_{%d,t}$" % (i + 1))
+            T_z_names.append("$x_{%d,%d}$" % (i + 1, t + 1))
+            T_z_names_tf.append("x_%d,%d" % (i + 1, t + 1))
+            T_z_group_names.append("$x_{%d,t}$" % (i + 1))
 
             # time-invariant covariance E[x_at x_bt]
     for i in range(D):
         for j in range(i, D):
             for t in range(T):
-                T_x_names.append(
+                T_z_names.append(
                     "$x_{%d,%d}$ $x_{%d,%d}$" % (i + 1, t + 1, j + 1, t + 1)
                 )
-                T_x_names_tf.append("x_%d,%d x_%d,%d" % (i + 1, t + 1, j + 1, t + 1))
-                T_x_group_names.append("$x_{%d,t}$ $x_{%d,t}$" % (i + 1, j + 1))
+                T_z_names_tf.append("x_%d,%d x_%d,%d" % (i + 1, t + 1, j + 1, t + 1))
+                T_z_group_names.append("$x_{%d,t}$ $x_{%d,t}$" % (i + 1, j + 1))
     return None
 
 
-def set_T_x_Dirich_names(T_x_names, T_x_names_tf, T_x_group_names, D, T):
+def set_T_z_Dirich_names(T_z_names, T_z_names_tf, T_z_group_names, D, T):
     # time-invariant expected log constraints
     for i in range(D):
         for t in range(T):
-            T_x_names.append("$\log x_{%d,%d}$" % (i + 1, t + 1))
-            T_x_names_tf.append("\log x_%d,%d" % (i + 1, t + 1))
-            T_x_group_names.append("$\log x_{%d,t}$" % (i + 1))
+            T_z_names.append("$\log x_{%d,%d}$" % (i + 1, t + 1))
+            T_z_names_tf.append("\log x_%d,%d" % (i + 1, t + 1))
+            T_z_group_names.append("$\log x_{%d,t}$" % (i + 1))
     return None
 
 
-def set_T_x_S_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+def set_T_z_S_names_E(T_z_names, T_z_names_tf, T_z_group_names, D, T_Cs):
     # mindful of endpoints across conditions
     # autocovariance by dimension E[x_cda x_cdb]
     C = len(T_Cs)
@@ -2709,22 +2708,22 @@ def set_T_x_S_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
                 for t2 in range(t1 + 1, T_C_i):
                     if i > 0 and t1 == 0 and t2 == (T_C_i - 1):
                         continue
-                    T_x_names.append(
+                    T_z_names.append(
                         "$x_{%d,%d,%d}$ $x_{%d,%d,%d}$"
                         % (i + 1, d + 1, t1 + 1, i + 1, d + 1, t2 + 1)
                     )
-                    T_x_names_tf.append(
+                    T_z_names_tf.append(
                         "x_%d,%d,%d x_%d,%d,%d"
                         % (i + 1, d + 1, t1 + 1, i + 1, d + 1, t2 + 1)
                     )
-                    T_x_group_names.append(
+                    T_z_group_names.append(
                         "$x_{%d,%d,t}$ $x_{%d,%d,t+%d}$"
                         % (i + 1, d + 1, i + 1, d + 1, int(abs(t2 - t1)))
                     )
     return None
 
 
-def set_T_x_D_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+def set_T_z_D_names_E(T_z_names, T_z_names_tf, T_z_group_names, D, T_Cs):
     # mindful of endpoints across conditions
     C = len(T_Cs)
     # mean E[x_cdt]
@@ -2736,9 +2735,9 @@ def set_T_x_D_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
             else:
                 ts = range(1, T_C_i - 1)
             for t in ts:
-                T_x_names.append("$x_{%d,%d,%d}$" % (i + 1, d + 1, t + 1))
-                T_x_names_tf.append("x_%d,%d,%d" % (i + 1, d + 1, t + 1))
-                T_x_group_names.append("$x_{%d,%d,t}$" % (i + 1, d + 1))
+                T_z_names.append("$x_{%d,%d,%d}$" % (i + 1, d + 1, t + 1))
+                T_z_names_tf.append("x_%d,%d,%d" % (i + 1, d + 1, t + 1))
+                T_z_group_names.append("$x_{%d,%d,t}$" % (i + 1, d + 1))
 
                 # time-invariant covariance E[x_cat x_cbt]
     for d1 in range(D):
@@ -2750,21 +2749,21 @@ def set_T_x_D_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
                 else:
                     ts = range(1, T_C_i - 1)
                 for t in ts:
-                    T_x_names.append(
+                    T_z_names.append(
                         "$x_{%d,%d,%d}$ $x_{%d,%d,%d}$"
                         % (i + 1, d1 + 1, t + 1, i + 1, d2 + 1, t + 1)
                     )
-                    T_x_names_tf.append(
+                    T_z_names_tf.append(
                         "x_%d,%d,%d x_%d,%d,%d"
                         % (i + 1, d1 + 1, t + 1, i + 1, d2 + 1, t + 1)
                     )
-                    T_x_group_names.append(
+                    T_z_group_names.append(
                         "$x_{%d,%d,t}$ $x_{%d,%d,t}$" % (i + 1, d1 + 1, i + 1, d2 + 1)
                     )
     return None
 
 
-def set_T_x_Dirich_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
+def set_T_z_Dirich_names_E(T_z_names, T_z_names_tf, T_z_group_names, D, T_Cs):
     # mindful of endpoints across conditions
     # time-invariant expected log constraints
     C = len(T_Cs)
@@ -2776,96 +2775,96 @@ def set_T_x_Dirich_names_E(T_x_names, T_x_names_tf, T_x_group_names, D, T_Cs):
             else:
                 ts = range(1, T_C_i - 1)
             for t in ts:
-                T_x_names.append("$\log x_{%d,%d,%d}$" % (i + 1, d + 1, t + 1))
-                T_x_names_tf.append("\log x_%d,%d,%d" % (i + 1, d + 1, t + 1))
-                T_x_group_names.append("$\log x_{c=%d,%d,t}$" % (i + 1, d + 1))
+                T_z_names.append("$\log x_{%d,%d,%d}$" % (i + 1, d + 1, t + 1))
+                T_z_names_tf.append("\log x_%d,%d,%d" % (i + 1, d + 1, t + 1))
+                T_z_group_names.append("$\log x_{c=%d,%d,t}$" % (i + 1, d + 1))
 
     return None
 
 
-def compute_T_x_S(X, D, T):
-    X_shape = tf.shape(X)
-    K = X_shape[0]
-    M = X_shape[1]
+def compute_T_z_S(Z, D, T):
+    Z_shape = tf.shape(Z)
+    K = Z_shape[0]
+    M = Z_shape[1]
     # compute the (S) suff stats
     ones_mat = tf.ones((T, T))
     mask_T = tf.matrix_band_part(ones_mat, 0, -1) - tf.matrix_band_part(ones_mat, 0, 0)
     cov_con_mask_T = tf.cast(mask_T, dtype=tf.bool)
-    XXT_KMDTT = tf.matmul(tf.expand_dims(X, 4), tf.expand_dims(X, 3))
-    T_x_S_KMDTcov = tf.transpose(
-        tf.boolean_mask(tf.transpose(XXT_KMDTT, [3, 4, 0, 1, 2]), cov_con_mask_T),
+    ZZT_KMDTT = tf.matmul(tf.expand_dims(Z, 4), tf.expand_dims(Z, 3))
+    T_z_S_KMDTcov = tf.transpose(
+        tf.boolean_mask(tf.transpose(ZZT_KMDTT, [3, 4, 0, 1, 2]), cov_con_mask_T),
         [1, 2, 3, 0],
     )
-    T_x_S = tf.reshape(T_x_S_KMDTcov, [K, M, D * tf.cast(T * (T - 1) / 2, tf.int32)])
-    return T_x_S
+    T_z_S = tf.reshape(T_z_S_KMDTcov, [K, M, D * tf.cast(T * (T - 1) / 2, tf.int32)])
+    return T_z_S
 
 
-def compute_T_x_Dirich(X, D, T):
-    X_shape = tf.shape(X)
-    K = X_shape[0]
-    M = X_shape[1]
+def compute_T_z_Dirich(Z, D, T):
+    Z_shape = tf.shape(Z)
+    K = Z_shape[0]
+    M = Z_shape[1]
     # compute the (D) suff stats
-    T_x_D = tf.reshape(tf.log(X), [K, M, D * T])
-    return T_x_D
+    T_z_D = tf.reshape(tf.log(Z), [K, M, D * T])
+    return T_z_D
 
 
-def compute_T_x_D(X, D, T):
-    X_shape = tf.shape(X)
-    K = X_shape[0]
-    M = X_shape[1]
+def compute_T_z_D(X, D, T):
+    Z_shape = tf.shape(Z)
+    K = Z_shape[0]
+    M = Z_shape[1]
     # compute the (D) suff stats
     cov_con_mask_D = np.triu(np.ones((D, D), dtype=np.bool_), 0)
-    T_x_mean = tf.reshape(X, [K, M, D * T])
+    T_z_mean = tf.reshape(Z, [K, M, D * T])
 
-    X_KMTD = tf.transpose(X, [0, 1, 3, 2])
-    # samps x D
-    XXT_KMTDD = tf.matmul(tf.expand_dims(X_KMTD, 4), tf.expand_dims(X_KMTD, 3))
-    T_x_cov_KMDcovT = tf.transpose(
-        tf.boolean_mask(tf.transpose(XXT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask_D),
+    Z_KMTD = tf.transpose(Z, [0, 1, 3, 2])
+    # samps z D
+    ZZT_KMTDD = tf.matmul(tf.expand_dims(Z_KMTD, 4), tf.expand_dims(Z_KMTD, 3))
+    T_z_cov_KMDcovT = tf.transpose(
+        tf.boolean_mask(tf.transpose(ZZT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask_D),
         [1, 2, 0, 3],
     )
-    T_x_cov = tf.reshape(T_x_cov_KMDcovT, [K, M, int(D * (D + 1) / 2) * T])
-    T_x_D = tf.concat((T_x_mean, T_x_cov), axis=2)
-    return T_x_D
+    T_z_cov = tf.reshape(T_z_cov_KMDcovT, [K, M, int(D * (D + 1) / 2) * T])
+    T_z_D = tf.concat((T_z_mean, T_z_cov), axis=2)
+    return T_z_D
 
 
-def compute_T_x_S_E(X, D, T_Cs):
+def compute_T_z_S_E(Z, D, T_Cs):
     # compute the (S) suff stats
-    X_shape = tf.shape(X)
-    K = X_shape[0]
-    M = X_shape[1]
+    Z_shape = tf.shape(Z)
+    K = Z_shape[0]
+    M = Z_shape[1]
     C = len(T_Cs)
     t_ind = 0
-    T_x_Ss = []
+    T_z_Ss = []
     for i in range(C):
         T_C_i = T_Cs[i]
-        X_Tci = tf.slice(X, [0, 0, 0, t_ind], [K, M, D, T_C_i])
+        Z_Tci = tf.slice(Z, [0, 0, 0, t_ind], [K, M, D, T_C_i])
         t_ind = t_ind + T_C_i
         cov_con_mask_T = np.triu(np.ones((T_C_i, T_C_i), dtype=np.bool_), 1)
-        XXT_KMDTT = tf.matmul(tf.expand_dims(X_Tci, 4), tf.expand_dims(X_Tci, 3))
-        T_x_S_KMDTcov = tf.transpose(
-            tf.boolean_mask(tf.transpose(XXT_KMDTT, [3, 4, 0, 1, 2]), cov_con_mask_T),
+        ZZT_KMDTT = tf.matmul(tf.expand_dims(Z_Tci, 4), tf.expand_dims(Z_Tci, 3))
+        T_z_S_KMDTcov = tf.transpose(
+            tf.boolean_mask(tf.transpose(ZZT_KMDTT, [3, 4, 0, 1, 2]), cov_con_mask_T),
             [1, 2, 3, 0],
         )
         if i > 0:
-            T_x_S_KMDTcov = tf.concat(
+            T_z_S_KMDTcov = tf.concat(
                 (
-                    T_x_S_KMDTcov[:, :, :, : (T_C_i - 2)],
-                    T_x_S_KMDTcov[:, :, :, (T_C_i - 1) :],
+                    T_z_S_KMDTcov[:, :, :, : (T_C_i - 2)],
+                    T_z_S_KMDTcov[:, :, :, (T_C_i - 1) :],
                 ),
                 3,
             )
-            T_x_S_i = tf.reshape(
-                T_x_S_KMDTcov, [K, M, D * int(T_C_i * (T_C_i - 1) / 2 - 1)]
+            T_z_S_i = tf.reshape(
+                T_z_S_KMDTcov, [K, M, D * int(T_C_i * (T_C_i - 1) / 2 - 1)]
             )
             # remove repeated endpoint correlation
         else:
-            T_x_S_i = tf.reshape(
-                T_x_S_KMDTcov, [K, M, D * int(T_C_i * (T_C_i - 1) / 2)]
+            T_z_S_i = tf.reshape(
+                T_z_S_KMDTcov, [K, M, D * int(T_C_i * (T_C_i - 1) / 2)]
             )
-        T_x_Ss.append(T_x_S_i)
-    T_x_S = tf.concat(T_x_Ss, 2)
-    return T_x_S
+        T_z_Ss.append(T_z_S_i)
+    T_z_S = tf.concat(T_z_Ss, 2)
+    return T_z_S
 
 
 def compute_mu_S(params, D, T):

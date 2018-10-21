@@ -5,9 +5,19 @@ from tf_util.flows import AffineFlowLayer, PlanarFlowLayer, SimplexBijectionLaye
                         SoftPlusLayer, GP_EP_CondRegLayer, GP_Layer, AR_Layer, VAR_Layer, \
                         FullyConnectedFlowLayer, ElemMultLayer
 
-# edit 2
+def construct_density_network(flow_dict, D_Z, T):
+    """Generates the ordered list of instantiated density network layers.
 
-def construct_flow(flow_dict, D_Z, T):
+        Args:
+            flow_dict (dict): Specifies structure of approximating density network.
+            D_Z (int): Dimensionality of the density network.
+            T (int): Number of time points.
+
+        Returns:
+            layers (list): List of instantiated normalizing flows.
+            num_theta_params (int): Total number of parameters in density network.
+
+        """
     latent_layers = construct_latent_dynamics(flow_dict, D_Z, T);
     time_invariant_layers = construct_time_invariant_flow(flow_dict, D_Z, T);
 
@@ -20,17 +30,22 @@ def construct_flow(flow_dict, D_Z, T):
         print(i, layer);
         num_theta_params += count_layer_params(layer);
 
-    Z0 = tf.placeholder(tf.float64, shape=(None, None, D_Z, None), name='Z0');
-    K = tf.shape(Z0)[0];
-    M = tf.shape(Z0)[1];
-
-    p0 = tf.reduce_prod(tf.exp((-tf.square(Z0))/2.0)/np.sqrt(2.0*np.pi), axis=[2,3]); 
-    base_log_q_x = tf.log(p0[:,:]);
-    Z_AR = Z0;
-    return layers, Z0, Z_AR, base_log_q_x, num_theta_params;
+    return layers, num_theta_params;
 
 
 def construct_latent_dynamics(flow_dict, D_Z, T):
+    """Creates normalizing flow layer for dynamics.
+
+        Args:
+            flow_dict (dict): Specifies structure of approximating density network.
+            D_Z (int): Dimensionality of the density network.
+            T (int): Number of time points.
+
+        Returns:
+            layers (list): List of instantiated normalizing flows.
+            num_theta_params (int): Total number of parameters in density network.
+
+        """
     latent_dynamics = flow_dict['latent_dynamics'];
 
     if (latent_dynamics is None):
@@ -86,6 +101,19 @@ def construct_latent_dynamics(flow_dict, D_Z, T):
 
 
 def construct_time_invariant_flow(flow_dict, D_Z, T):
+    """Creates list of time-invariant normalizing flow layers.
+
+        Args:
+            flow_dict (dict): Specifies structure of approximating density network.
+            D_Z (int): Dimensionality of the density network.
+            T (int): Number of time points.
+
+        Returns:
+            layers (list): List of instantiated normalizing flows.
+            num_theta_params (int): Total number of parameters in density network.
+
+    """
+
     layer_ind = 1;
     layers = [];
     TIF_flow_type = flow_dict['TIF_flow_type'];
@@ -137,11 +165,20 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     return layers;
 
 
-def declare_theta(flow_layers):
-    L_flow = len(flow_layers);
+def declare_theta(layers):
+    """Declare tensorflow variables for the density network.
+
+        Args:
+            layers (list): List of instantiated normalizing flows.
+
+        Returns:
+            theta (list): List of tensorflow variables for the density network.
+
+    """
+    L_flow = len(layers);
     theta =[];
     for i in range(L_flow):
-        layer = flow_layers[i];
+        layer = layers[i];
         layer_name, param_names, param_dims, initializers, lock = layer.get_layer_info();
         nparams = len(param_names);
         layer_i_params = [];
@@ -161,29 +198,44 @@ def declare_theta(flow_layers):
         theta.append(layer_i_params);
     return theta;
 
-def connect_flow(Z, layers, theta, ts=None):
-    Z_shape = tf.shape(Z);
-    K = Z_shape[0];
-    M = Z_shape[1];
-    D_Z = Z_shape[2];
-    T = Z_shape[3];
+def connect_density_network(W, layers, theta, ts=None):
+    """Update parameters of normalizing flow layers to be the tensorflow theta variable,
+       while pushing isotropic gaussian samples W through the network.
+
+        This method is used for both EFN (theta is output of parameter network) and for
+        NF (theta is a list of declared tensorflow variables that are optimized).
+
+        Args:
+            W (tf.Tensor): Isotropic gaussian samples.
+            layers (list): List of instantiated normalizing flows.
+            theta (tf.Tensor (if EFN), tf.Variable (if NF)): Density network parameters.
+
+        Returns:
+            Z (tf.Tensor): Density network samples.
+            sum_log_det_jacobians (tf.Tensor): Sum of the log absolute value determinant
+                                               of the jacobians of the forward 
+                                               transformations.
+            Z_by_layer (list): List of density network samples at each layer.
+
+    """
+    W_shape = tf.shape(W);
+    K = W_shape[0];
+    M = W_shape[1];
+    D_Z = W_shape[2];
+    T = W_shape[3];
 
     sum_log_det_jacobians = tf.zeros((K,M), dtype=tf.float64);
     nlayers = len(layers);
     Z_by_layer = [];
-    Z_by_layer.append(Z);
+    Z_by_layer.append(W);
+    Z = W;
     for i in range(nlayers):
         layer = layers[i];
         print(i, layer.name);
         theta_layer = theta[i];
         layer.connect_parameter_network(theta_layer);
-        # feed in ts for the process latent dynamical flows
         if (isinstance(layer, GP_Layer) or isinstance(layer, GP_EP_CondRegLayer)):
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians, ts);
-            #if (isinstance(layer, GP_EP_CondRegLayer)):
-            #    C = tf.shape(Z)[2];
-            #    _T = tf.shape(Z)[4];
-            #    Z = tf.reshape(tf.transpose(Z, [0,1,3,2,4]), [K,M,D_Z,C*_T]);
         elif (layer.name[:4] == 'Flat'):
             Z = tf.reshape(Z, [K,M,D_Z*T,1]);
             Z, sum_log_det_jacobians = layer.forward_and_jacobian(Z, sum_log_det_jacobians);
@@ -194,6 +246,15 @@ def connect_flow(Z, layers, theta, ts=None):
     return Z, sum_log_det_jacobians, Z_by_layer;
 
 def count_layer_params(layer):
+    """Count number of params in a normalizing flow layer.
+
+        Args:
+            layer (Layer): Instance of a normalizing flow.
+
+        Returns:
+            num_params (int): The total number of parameters in the layer.
+
+    """
     num_params = 0;
     name, param_names, dims, _, _ = layer.get_layer_info();
     nparams = len(dims);
@@ -203,6 +264,15 @@ def count_layer_params(layer):
 
 
 def count_params(all_params):
+    """Count total parameters in the model.
+
+        Args:
+            all_params (list): List of tf.Variables.
+
+        Returns:
+            nparam_vals (int): The total number of parameters in the model.
+
+    """
     nparams = len(all_params);
     nparam_vals = 0;
     for i in range(nparams):
@@ -210,6 +280,7 @@ def count_params(all_params):
         param_shape = tuple(param.get_shape().as_list());
         nparam_vals += np.prod(param_shape);
     return nparam_vals;
+    
 
 def gradients(f, x, grad_ys=None):
     '''
@@ -259,7 +330,7 @@ def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
     M = T_x_shape[1];
     H = -tf.reduce_mean(log_q_x);
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
-    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0,0]);
+    cost_terms_1 = -H + tf.Tensordot(Lambda, R, axes=[0,0]);
     cost = cost_terms_1 + (c/2.0)*tf.reduce_sum(tf.square(R));
     grad_func1 = tf.gradients(cost_terms_1, all_params);
     
