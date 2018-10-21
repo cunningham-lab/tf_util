@@ -15,8 +15,8 @@
 # ==============================================================================
 import tensorflow as tf
 import numpy as np
-from tf_util.tf_util import count_layer_params
-from tf_util.flows import SoftPlusLayer, IntervalFlowLayer
+from lib.tf_util.tf_util import count_layer_params
+from lib.tf_util.flows import SoftPlusLayer, IntervalFlowLayer
 import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio

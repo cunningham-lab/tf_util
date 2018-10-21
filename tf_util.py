@@ -15,7 +15,7 @@
 # ==============================================================================
 import tensorflow as tf
 import numpy as np
-from tf_util.flows import (
+from lib.tf_util.flows import (
     AffineFlowLayer,
     PlanarFlowLayer,
     SimplexBijectionLayer,

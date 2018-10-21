@@ -1,6 +1,6 @@
 # coding: utf-8
  
-from tf_util.Bron_Kerbosch.data import *
+from lib.tf_util.Bron_Kerbosch.data import *
 MIN_SIZE = 2
 
 

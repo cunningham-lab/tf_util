@@ -17,8 +17,8 @@ import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 from cvxopt import spmatrix, amd
 import chompack as cp
-from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
-from tf_util.Bron_Kerbosch.reporter import Reporter
+from lib.tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
+from lib.tf_util.Bron_Kerbosch.reporter import Reporter
 import matplotlib.pyplot as plt
 
 
