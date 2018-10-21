@@ -152,13 +152,16 @@ class Family:
         _Z, _log_p_z, _elbos, _R2s = sess.run([Z, log_p_z, elbos, R2s], feed_dict)
         KLs = []
         for k in range(K):
-            log_p_z_k = _log_p_z[k, :]
-            Z_k = _Z[k, :, :, 0]
-            params_k = eta_draw_params[k]
-            KL_k = self.approx_KL(log_p_z_k, Z_k, params_k)
-            KLs.append(KL_k)
-            if checkEntropy:
-                self.check_entropy(log_p_z_k, params_k)
+            if (self.has_log_p):
+                log_p_z_k = _log_p_z[k, :]
+                Z_k = _Z[k, :, :, 0]
+                params_k = eta_draw_params[k]
+                KL_k = self.approx_KL(log_p_z_k, Z_k, params_k)
+                KLs.append(KL_k)
+                if checkEntropy:
+                    self.check_entropy(log_p_z_k, params_k)
+            else:
+                KLs.append(np.nan);
         return np.array(_elbos), np.array(_R2s), np.array(KLs), _Z
 
     def approx_KL(self, log_Q, Z, params):
@@ -279,6 +282,8 @@ class PosteriorFamily(Family):
             num_param_net_inputs = self.num_likelihood_suff_stats
         elif param_net_input_type == "data":
             num_param_net_inputs = self.D
+        else:
+            raise NotImplementedError()
         return self.D_Z, self.num_suff_stats, num_param_net_inputs, self.num_T_z_inputs
 
 
