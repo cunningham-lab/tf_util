@@ -4,14 +4,14 @@ import scipy.stats
 from scipy.special import gammaln, psi
 import scipy.io as sio
 from itertools import compress
-from lib.tf_util.tf_util import count_layer_params
-from lib.tf_util.stat_util import (
+from tf_util.tf_util import count_layer_params
+from tf_util.stat_util import (
     truncated_multivariate_normal_rvs,
     get_GP_Sigma,
     drawPoissonCounts,
     get_sampler_func,
 )
-from lib.tf_util.flows import (
+from tf_util.flows import (
     SimplexBijectionLayer,
     CholProdLayer,
     SoftPlusLayer,

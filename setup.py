@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from distutils.core import setup
+from setuptools import setup
 
 setup(name='tf_util',
       version='1.0',
@@ -8,4 +8,5 @@ setup(name='tf_util',
       author='Sean Bittner',
       author_email='srb2201@columbia.edu',
       packages=['tf_util', 'tf_util.Bron_Kerbosch'],
+      install_requires=['numpy', 'scipy', 'cvxopt', 'matplotlib'],
      )
