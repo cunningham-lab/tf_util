@@ -24,25 +24,6 @@ from itertools import compress
 from util import tf_integrals as tf_integrals
 
 
-def system_from_str(system_str):
-    if system_str in ["null", "null_on_interval"]:
-        return null_on_interval
-    elif system_str in ["one_con", "one_con_on_interval"]:
-        return one_con_on_interval
-    elif system_str in ["two_con", "two_con_on_interval"]:
-        return two_con_on_interval
-    elif system_str in ["linear_1D"]:
-        return linear_1D
-    elif system_str in ["linear_2D"]:
-        return linear_2D
-    elif system_str in ["damped_harmonic_oscillator", "dho"]:
-        return damped_harmonic_oscillator
-    elif system_str in ["rank1_rnn"]:
-        return RNN_rank1
-    elif system_str in ["rank1_rnn_std"]:
-        return RNN_rank1_std
-
-
 class system:
     """Base class for exponential families.
 	
@@ -469,6 +450,88 @@ class damped_harmonic_oscillator(system):
         layers.append(support_layer)
         return layers, num_theta_params
 
+class MultivariateNormal(system):
+    """Linear two-dimensional systems.
+
+    Attributes:
+        D (int): parametric dimensionality
+        T (int): number of time points
+        dt (float): time resolution of simulation
+        behavior_str (str): determines sufficient statistics that characterize system
+    """
+
+    def __init__(self, D, T=1, behavior_str='moments'):
+        self.D = D;
+        self.T = T;
+        self.behavior_str = behavior_str
+        self.name = "normal"
+        self.num_suff_stats = int(D + D * (D + 1) / 2)
+
+    def compute_suff_stats(self, phi):
+        """Compute sufficient statistics of density network samples.
+
+        Args:
+            phi (tf.tensor): Density network system parameter samples.
+
+        Returns:
+            T_x (tf.tensor): Sufficient statistics of samples.
+        """
+        if self.behavior_str == "moments":
+            T_x = self.analytic_suff_stats(phi)
+        else:
+            raise NotImplementedError
+        return T_x
+
+    def analytic_suff_stats(self, phi):
+        """Compute closed form sufficient statistics.
+
+        Args:
+            phi (tf.tensor): Density network system parameter samples.
+
+        Returns:
+            T_x (tf.tensor): Analytic sufficient statistics of samples.
+        """
+        phi_shape = tf.shape(phi)
+        K = phi_shape[0]
+        M = phi_shape[1]
+
+        cov_con_mask = np.triu(np.ones((self.D, self.D), dtype=np.bool_), 0)
+        T_phi_mean = tf.reduce_mean(phi, 3)
+        phi_KMTD = tf.transpose(phi, [0, 1, 3, 2])
+        # samps x D
+        phiphiT_KMTDD = tf.matmul(tf.expand_dims(phi_KMTD, 4), tf.expand_dims(phi_KMTD, 3))
+        T_phi_cov_KMTDZ = tf.transpose(
+            tf.boolean_mask(tf.transpose(phiphiT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask),
+            [1, 2, 3, 0],
+        )
+        T_phi_cov = tf.reduce_mean(T_phi_cov_KMTDZ, 2)
+        T_phi = tf.concat((T_phi_mean, T_phi_cov), axis=2)
+        return T_phi
+
+    def compute_mu(self, behavior):
+        """Compute the mean parameterization (mu) given the mean parameters.
+
+        Args:
+            behavior (dict): Mean parameters of behavioral distribution.
+
+        Returns:
+            mu (np.array): The mean parameterization vector of the exponential family.
+
+        """
+        mu = behavior["mu"]
+        Sigma = behavior["Sigma"]
+        mu_mu = mu
+        mu_Sigma = np.zeros((int(self.D * (self.D + 1) / 2)))
+        ind = 0
+        for i in range(self.D):
+            for j in range(i, self.D):
+                mu_Sigma[ind] = Sigma[i, j] + mu[i] * mu[j]
+                ind += 1
+
+        mu = np.concatenate((mu_mu, mu_Sigma), 0)
+        return mu
+
+
 
 class linear_2D(system):
     """Linear two-dimensional systems.
@@ -486,7 +549,7 @@ class linear_2D(system):
         self.D = 4
         self.dt = 0.001
         self.T = 1
-        self.num_suff_stats = 6
+        self.num_suff_stats = 4
 
     def compute_suff_stats(self, phi):
         """Compute sufficient statistics of density network samples.
@@ -548,8 +611,8 @@ class linear_2D(system):
             moments = [
                 lambda_1_real,
                 tf.square(lambda_1_real),
-                lambda_2_real,
-                tf.square(lambda_2_real),
+                #lambda_2_real,
+                #tf.square(lambda_2_real),
                 lambda_1_imag,
                 tf.square(lambda_1_imag),
             ]
@@ -562,8 +625,11 @@ class linear_2D(system):
         mu_mu = mu
         mu_Sigma = np.square(mu_mu) + Sigma
         print(mu_mu.shape, mu_Sigma.shape)
+        #mu = np.array(
+        #    [mu_mu[0], mu_Sigma[0], mu_mu[1], mu_Sigma[1], mu_mu[2], mu_Sigma[2]]
+        #)
         mu = np.array(
-            [mu_mu[0], mu_Sigma[0], mu_mu[1], mu_Sigma[1], mu_mu[2], mu_Sigma[2]]
+            [mu_mu[0], mu_Sigma[0], mu_mu[1], mu_Sigma[1]]
         )
         return mu
 
@@ -844,3 +910,24 @@ class RNN_rank1_std(system):
         num_theta_params += count_layer_params(support_layer)
         layers.append(support_layer)
         return layers, num_theta_params
+
+
+def system_from_str(system_str):
+    if system_str in ["null", "null_on_interval"]:
+        return null_on_interval
+    elif system_str in ["one_con", "one_con_on_interval"]:
+        return one_con_on_interval
+    elif system_str in ["two_con", "two_con_on_interval"]:
+        return two_con_on_interval
+    elif system_str in ["linear_1D"]:
+        return linear_1D
+    elif system_str in ["linear_2D"]:
+        return linear_2D
+    elif system_str in ["MultivariateNormal", "normal", "multivariate_normal"]:
+        return MultivariateNormal
+    elif system_str in ["damped_harmonic_oscillator", "dho"]:
+        return damped_harmonic_oscillator
+    elif system_str in ["rank1_rnn"]:
+        return RNN_rank1
+    elif system_str in ["rank1_rnn_std"]:
+        return RNN_rank1_std

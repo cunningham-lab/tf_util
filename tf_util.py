@@ -387,7 +387,7 @@ def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
     M = T_x_shape[1]
     H = -tf.reduce_mean(log_q_x)
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
-    cost_terms_1 = -H + tf.Tensordot(Lambda, R, axes=[0, 0])
+    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
     cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
     grad_func1 = tf.gradients(cost_terms_1, all_params)
 
@@ -400,3 +400,25 @@ def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
         grads.append(grad_func1[i] + c * grad_con[i])
 
     return cost, grads, H
+
+def memory_extension(input_arrays, array_cur_len):
+    """Extend numpy arrays tracking model diagnostics.
+
+        Args:
+            input_arrays (np.array): Arrays to extend.
+            array_cur_len (int): Current array lengths.
+
+        Returns:
+            extended_arrays (np.array): Extended arrays.
+
+        """
+    print("Doubling memory allocation for parameter logging.")
+    n = len(input_arrays)
+    extended_arrays = []
+    for i in range(n):
+        input_array = input_arrays[i]
+        extended_array = np.concatenate(
+            (input_array, np.zeros((array_cur_len, input_array.shape[1]))), axis=0
+        )
+        extended_arrays.append(extended_array)
+    return extended_arrays
