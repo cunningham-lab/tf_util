@@ -158,6 +158,13 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     layers = []
     TIF_flow_type = flow_dict["TIF_flow_type"]
     repeats = flow_dict["repeats"]
+    scale_layer = flow_dict["scale_layer"]
+    nlayers = repeats + scale_layer;
+    if ("inits" in flow_dict.keys()):
+        inits = flow_dict["inits"];
+    else:
+        inits = nlayers*[None];
+
 
     if TIF_flow_type == "ScalarFlowLayer":
         flow_class = ElemMultLayer
@@ -194,18 +201,18 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     else:
         raise NotImplementedError()
 
-    if flow_dict["scale_layer"]:
-        layers.append(ElemMultLayer("ScalarFlow_Layer_0", D_Z))
+    if scale_layer:
+        layers.append(ElemMultLayer("ScalarFlow_Layer_%d" % layer_ind, D_Z, inits=inits[layer_ind-1]))
         layer_ind += 1
 
     for i in range(repeats):
-        layers.append(flow_class("%s%d" % (name_prefix, layer_ind), D_Z))
+        layers.append(flow_class("%s%d" % (name_prefix, layer_ind), D_Z, inits=inits[layer_ind-1]))
         layer_ind += 1
 
     return layers
 
 
-def declare_theta(layers):
+def declare_theta(layers, inits=None):
     """Declare tensorflow variables for the density network.
 
         Args:
@@ -400,6 +407,30 @@ def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
         grads.append(grad_func1[i] + c * grad_con[i])
 
     return cost, grads, H
+
+def load_nf_vars(initdir):
+    saver = tf.train.import_meta_graph(initdir + 'model.meta', import_scope='DSN');
+    W = tf.get_collection('W')[0];
+    phi = tf.get_collection('Z')[0];
+    log_q_phi = tf.get_collection('log_q_zs')[0];
+    return W, phi, log_q_phi, saver;
+
+def load_nf_init(initdir, flow_dict):
+    initfile = np.load(initdir + 'final_theta.npz');
+    theta = initfile['theta'][()];
+    inits = [];
+    layer_ind = 1;
+    if (flow_dict['scale_layer']):
+        inits.append([theta['ScalarFlow_Layer_%d_a:0' % layer_ind]])
+        layer_ind += 1;
+    for i in range(flow_dict['repeats']):
+        init_i = [theta['PlanarFlow_Layer%d_u:0' % layer_ind], \
+                  theta['PlanarFlow_Layer%d_w:0' % layer_ind], \
+                  theta['PlanarFlow_Layer%d_b:0' % layer_ind]]
+        inits.append(init_i);
+        layer_ind += 1;
+
+    return inits;
 
 def memory_extension(input_arrays, array_cur_len):
     """Extend numpy arrays tracking model diagnostics.

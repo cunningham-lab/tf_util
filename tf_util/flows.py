@@ -40,7 +40,7 @@ class Layer:
 
 
 class PlanarFlowLayer(Layer):
-    def __init__(self, name="PlanarFlow", dim=1):
+    def __init__(self, name="PlanarFlow", dim=1, inits=None):
         self.name = name
         self.dim = dim
         self.param_names = ["u", "w", "b"]
@@ -50,25 +50,24 @@ class PlanarFlowLayer(Layer):
         self.w = None
         self.b = None
         self.lock = False
-        self.most_random_init = True
+        self.inits = inits;
 
     def get_layer_info(self,):
         u_dim = (self.dim, 1)
         w_dim = (self.dim, 1)
         b_dim = (1, 1)
         dims = [u_dim, w_dim, b_dim]
-        if self.most_random_init:
-            initializers = [
-                tf.glorot_uniform_initializer(),
-                tf.glorot_uniform_initializer(),
-                tf.glorot_uniform_initializer(),
-            ]
-        else:
+        if self.inits is None:
             initializers = [
                 tf.constant(np.zeros(u_dim)),
                 tf.glorot_uniform_initializer(),
                 tf.constant(np.zeros(b_dim)),
             ]
+        else:
+            initializers = []
+            for i in range(len(self.inits)):
+                initializers.append(tf.constant(self.inits[i]));
+            
         return self.name, self.param_names, dims, initializers, self.lock
 
     def get_params(self,):
@@ -526,16 +525,20 @@ class ShiftLayer(Layer):
 
 
 class ElemMultLayer(Layer):
-    def __init__(self, name, dim):
+    def __init__(self, name, dim, inits=None):
         self.name = name
         self.dim = dim
         self.param_names = ["a"]
         self.lock = False
+        self.inits = inits
 
     def get_layer_info(self,):
         a_dim = (self.dim, 1)
         dims = [a_dim]
-        initializers = [tf.glorot_uniform_initializer()]
+        if (self.inits is None):
+            initializers = [tf.glorot_uniform_initializer()]
+        else:
+            initializers = [tf.constant(self.inits[0])]
         return self.name, self.param_names, dims, initializers, self.lock
 
     def connect_parameter_network(self, theta_layer):
