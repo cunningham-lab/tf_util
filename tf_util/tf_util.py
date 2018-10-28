@@ -453,3 +453,25 @@ def memory_extension(input_arrays, array_cur_len):
         )
         extended_arrays.append(extended_array)
     return extended_arrays
+
+def get_flowstring(flow_dict):
+    """Get string description of density network.
+
+        Args:
+            flow_dict (dict): Specifies structure of approximating density network.
+
+        Returns:
+            tif_str (str): String specifying time-invariant flow network architecture.
+
+        """
+    latent_dynamics = flow_dict["latent_dynamics"]
+    tif_flow_type = flow_dict["TIF_flow_type"]
+    repeats = flow_dict["repeats"]
+    if flow_dict["scale_layer"]:
+        tif_str = "M_%d%s" % (repeats, tif_flow_type[:1])
+    else:
+        tif_str = "%d%s" % (repeats, tif_flow_type[:1])
+    if latent_dynamics is not None:
+        return "%s_%s" % (latent_dynamics, tif_str)
+    else:
+        return tif_str
