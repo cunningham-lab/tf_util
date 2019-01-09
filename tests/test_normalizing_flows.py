@@ -118,6 +118,7 @@ def test_elem_mult_flows():
 	eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 4, K, n)
 	eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 20, K, n)
 	eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 100, K, n)
+	eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 200, K, n)
 	eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 1000, K, n)
 	#eval_flow_at_dim(ElemMultLayer, elem_mult_flow, 100000, K, n) # passes but takes long
 	print('Elementwise multiplication flows passed testing.')
