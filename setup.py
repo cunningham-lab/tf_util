@@ -7,6 +7,6 @@ setup(name='tf_util',
       description='Useful tensorflow libraries.',
       author='Sean Bittner',
       author_email='srb2201@columbia.edu',
-      packages=['tf_util', 'tf_util.Bron_Kerbosch'],
-      install_requires=['numpy', 'scipy', 'cvxopt', 'matplotlib'],
+      packages=['tf_util'],
+      install_requires=['numpy', 'scipy', 'tensorflow'],
      )
