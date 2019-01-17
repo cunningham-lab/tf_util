@@ -39,9 +39,14 @@ from tf_util.normalizing_flows import (
 
 DTYPE = tf.float64
 
-def density_network(W, arch_dict, family):
+def density_network(W, arch_dict, support_mapping=None, initdir=None):
     D = arch_dict['D']
-    inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
+    if (initdir is None):
+        inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
+    else:
+        inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
+        print('Loaded optimized initialization.')
+
     num_layers = len(inits_by_layer)
     # declare layer parameters with initializations
     params = []
@@ -52,8 +57,6 @@ def density_network(W, arch_dict, family):
             dims_i = dims_by_layer[i]
             num_inits = len(inits_i)
             for j in range(num_inits):
-                print(j)
-                print(inits_i[j])
                 varname_ij = 'theta_%d_%d' % (i+1,j+1)
                 if (isinstance(inits_i[j], tf.Tensor)):
                     var_ij = tf.get_variable(varname_ij, dtype=DTYPE, \
@@ -85,12 +88,48 @@ def density_network(W, arch_dict, family):
         ind += 1
 
     # need to add support mapping
-    if (family.support_mapping is not None):
+    if (support_mapping is not None):
         raise NotImplementedError()
 
     return Z, sum_log_det_jacobians, flow_layers
 
 
+def get_initdir(D, flow_dict, sigma, random_seed):
+    # set file I/O stuff
+    initdir = 'data/inits/';
+    flowstring = get_flowstring(flow_dict);
+    initdir = initdir + 'D=%d_%s_sigma=%.2f_rs=%d/' % \
+              (D, flowstring, sigma, random_seed);
+    return initdir
+
+def load_nf_init(initdir, arch_dict):
+    initfile = np.load(initdir + 'theta.npz');
+    theta = initfile['theta'][()];
+    scope = 'density_network'
+    inits_by_layer = [];
+    dims_by_layer = []
+    layer_ind = 1;
+
+    if (arch_dict['elem_mult_flow']):
+        a_init = tf.constant(theta['%s/theta_1_1:0' % scope], dtype=DTYPE)
+        inits_by_layer.append([a_init])
+        dims_by_layer.append([a_init.shape])
+        layer_ind += 1;
+
+    for i in range(arch_dict['repeats']):
+        if (arch_dict['TIF_flow_type'] == 'PlanarFlow'):
+            u_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 1)], dtype=DTYPE)
+            w_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 2)], dtype=DTYPE)
+            b_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 3)], dtype=DTYPE)
+            init_i = [u_init, w_init, b_init]
+            dims_i = [u_init.shape, w_init.shape, b_init.shape]
+            inits_by_layer.append(init_i);
+            dims_by_layer.append(dims_i)
+            layer_ind += 1;
+        else:
+            raise NotImplementedError()
+
+    return inits_by_layer, dims_by_layer
 
 
 
@@ -219,8 +258,8 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     layers = []
     TIF_flow_type = flow_dict["TIF_flow_type"]
     repeats = flow_dict["repeats"]
-    scale_layer = flow_dict["scale_layer"]
-    nlayers = repeats + scale_layer;
+    elem_mult_flow = flow_dict["elem_mult_flow"]
+    nlayers = repeats + elem_mult_flow;
     if ("inits" in flow_dict.keys()):
         inits = flow_dict["inits"];
     else:
@@ -262,7 +301,7 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     else:
         raise NotImplementedError()
 
-    if scale_layer:
+    if elem_mult_flow:
         layers.append(ElemMultLayer("ScalarFlow_Layer_%d" % layer_ind, D_Z, inits=inits[layer_ind-1]))
         layer_ind += 1
 
@@ -345,7 +384,6 @@ def connect_density_network(W, layers, theta, ts=None):
     Z = W
     for i in range(nlayers):
         layer = layers[i]
-        print(i, layer.name)
         theta_layer = theta[i]
         layer.connect_parameter_network(theta_layer)
         if isinstance(layer, GP_Layer) or isinstance(layer, GP_EP_CondRegLayer):
@@ -475,23 +513,6 @@ def load_nf_vars(initdir):
     phi = tf.get_collection('Z')[0];
     log_q_phi = tf.get_collection('log_q_zs')[0];
     return W, phi, log_q_phi, saver;
-
-def load_nf_init(initdir, flow_dict):
-    initfile = np.load(initdir + 'final_theta.npz');
-    theta = initfile['theta'][()];
-    inits = [];
-    layer_ind = 1;
-    if (flow_dict['scale_layer']):
-        inits.append([theta['ScalarFlow_Layer_%d_a:0' % layer_ind]])
-        layer_ind += 1;
-    for i in range(flow_dict['repeats']):
-        init_i = [theta['PlanarFlow_Layer%d_u:0' % layer_ind], \
-                  theta['PlanarFlow_Layer%d_w:0' % layer_ind], \
-                  theta['PlanarFlow_Layer%d_b:0' % layer_ind]]
-        inits.append(init_i);
-        layer_ind += 1;
-
-    return inits;
 
 def memory_extension(input_arrays, array_cur_len):
     """Extend numpy arrays tracking model diagnostics.

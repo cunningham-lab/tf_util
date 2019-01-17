@@ -33,6 +33,8 @@ from tf_util.flows import (
     ShiftLayer,
 )
 
+DTYPE = tf.float64
+
 
 class Family:
     """Base class for exponential families.
@@ -331,12 +333,14 @@ class MultivariateNormal(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        cov_con_mask = np.triu(np.ones((self.D, self.D), dtype=np.bool_), 0)
+        
+        ones = tf.ones((self.D, self.D), dtype=DTYPE)
+        cov_con_mask_2D = tf.matrix_band_part(ones, 0, -1)
+
         Z_first_mom = Z
-        # samps x D
         Z_second_mom = tf.matmul(tf.expand_dims(Z, 3), tf.expand_dims(Z, 2))
         Z_sec_mom_no_repeats = tf.transpose(
-            tf.boolean_mask(tf.transpose(Z_second_mom, [2, 3, 0, 1]), cov_con_mask),
+            tf.boolean_mask(tf.transpose(Z_second_mom, [2, 3, 0, 1]), cov_con_mask_2D),
             [1, 2, 0],
         )
         T_z = tf.concat((Z_first_mom, Z_sec_mom_no_repeats), axis=2)
@@ -378,7 +382,7 @@ class MultivariateNormal(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = -(self.D / 2) * np.log(2 * np.pi) * tf.ones((K, M), dtype=tf.float64)
+        log_h_z = -(self.D / 2) * np.log(2 * np.pi) * tf.ones((K, M), dtype=DTYPE)
         return log_h_z
 
     def default_eta_dist(self,):
@@ -883,7 +887,7 @@ class InvWishart(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        log_h_z = tf.zeros((K, M), dtype=DTYPE)
         return log_h_z
 
     def default_eta_dist(self,):
@@ -1085,7 +1089,7 @@ class HierarchicalDirichlet(PosteriorFamily):
         K = Z_shape[0]
         M = Z_shape[1]
         logz = tf.log(Z[:, :, :, 0])
-        const = -tf.ones((K, M, 1), tf.float64)
+        const = -tf.ones((K, M, 1), DTYPE)
         beta = tf.expand_dims(T_z_input, 1)
         betaz = tf.multiply(beta, Z[:, :, :, 0])
         log_gamma_beta_z = tf.lgamma(betaz)
@@ -1110,7 +1114,7 @@ class HierarchicalDirichlet(PosteriorFamily):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        log_h_z = tf.zeros((K, M), dtype=DTYPE)
         return log_h_z
 
     def default_eta_dist(self,):
@@ -1301,8 +1305,8 @@ class DirichletMultinomial(PosteriorFamily):
         K = Z_shape[0]
         M = Z_shape[1]
         logz = tf.log(Z[:, :, :, 0])
-        const = -tf.ones((K, M, 1), tf.float64)
-        zeros = -tf.zeros((K, M, 1), tf.float64)
+        const = -tf.ones((K, M, 1), DTYPE)
+        zeros = -tf.zeros((K, M, 1), DTYPE)
         T_z = tf.concat((logz, const, logz, zeros), 2)
         return T_z
 
@@ -1320,7 +1324,7 @@ class DirichletMultinomial(PosteriorFamily):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        log_h_z = tf.zeros((K, M), dtype=DTYPE)
         return log_h_z
 
     def default_eta_dist(self,):
@@ -1481,7 +1485,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         K = Z_shape[0]
         M = Z_shape[1]
         T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
-        const = -tf.ones((K, M, 1), tf.float64)
+        const = -tf.ones((K, M, 1), dtype=DTYPE)
         logz = tf.log(Z[:, :, :, 0])
         sumz = tf.expand_dims(tf.reduce_sum(Z[:, :, :, 0], 2), 2)
         T_z = tf.concat((T_z_prior, const, logz, sumz), 2)
@@ -1501,7 +1505,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        log_h_z = tf.zeros((K, M), dtype=DTYPE)
         return log_h_z
 
     def draw_etas(self, K, param_net_input_type="eta", give_hint=False):
@@ -1728,7 +1732,7 @@ class LogGaussianCox(PosteriorFamily):
         K = Z_shape[0]
         M = Z_shape[1]
         T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
-        const = -tf.ones((K, M, 1), tf.float64)
+        const = -tf.ones((K, M, 1), dtype=DTYPE)
         z = Z[:, :, :, 0]
         sum_exp_z = tf.expand_dims(tf.reduce_sum(tf.exp(Z[:, :, :, 0]), 2), 2)
         T_z = tf.concat((T_z_prior, const, z, sum_exp_z), 2)
@@ -1748,7 +1752,7 @@ class LogGaussianCox(PosteriorFamily):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.zeros((K, M), dtype=tf.float64)
+        log_h_z = tf.zeros((K, M), dtype=DTYPE)
         return log_h_z
 
     def load_data(self,):
@@ -2059,7 +2063,7 @@ class SurrogateSD(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        log_h_z = tf.ones((K, M), dtype=DTYPE)
         return log_h_z
 
     def compute_mu(self, params):
@@ -2203,7 +2207,7 @@ class SurrogateSED(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        log_h_z = tf.ones((K, M), dtype=DTYPE)
         return log_h_z
 
     def compute_mu(self, params):
@@ -2352,7 +2356,7 @@ class GPDirichlet(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        log_h_z = tf.ones((K, M), dtype=DTYPE)
         return log_h_z
 
     def compute_mu(self, params):
@@ -2529,7 +2533,7 @@ class GPEDirichlet(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_h_z = tf.ones((K, M), dtype=tf.float64)
+        log_h_z = tf.ones((K, M), dtype=DTYPE)
         return log_h_z
 
     def compute_mu(self, params):
