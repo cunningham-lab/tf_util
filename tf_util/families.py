@@ -1,3 +1,18 @@
+# Copyright 2018 Sean Bittner, Columbia University
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# ==============================================================================
 import tensorflow as tf
 import numpy as np
 import scipy.stats
@@ -40,7 +55,7 @@ class Family:
 
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """Family constructor.
 
 		Args:
@@ -51,19 +66,15 @@ class Family:
 		"""
 
         self.D = D
-        self.T = T
         self.num_T_z_inputs = 0
         self.constant_base_measure = True
         self.has_log_p = False
+        self.support_mapping = None
         if eta_dist is not None:
             self.eta_dist = eta_dist
         else:
             self.eta_dist = self.default_eta_dist()
         self.eta_sampler = get_sampler_func(self.eta_dist, self.D)
-
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support."""
-        return layers, num_theta_params
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples."""
@@ -154,7 +165,7 @@ class Family:
         for k in range(K):
             if (self.has_log_p):
                 log_p_z_k = _log_p_z[k, :]
-                Z_k = _Z[k, :, :, 0]
+                Z_k = _Z[k, :, :]
                 params_k = eta_draw_params[k]
                 KL_k = self.approx_KL(log_p_z_k, Z_k, params_k)
                 KLs.append(KL_k)
@@ -290,7 +301,7 @@ class PosteriorFamily(Family):
 class MultivariateNormal(Family):
     """Multivariate normal family."""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """Multivariate normal family constructor
 
 		Args:
@@ -299,7 +310,7 @@ class MultivariateNormal(Family):
 			eta_dist (dict): Specifies the prior on the natural parameter, eta.
 
 		"""
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "MultivariateNormal"
         self.D_Z = D
         self.num_suff_stats = int(D + D * (D + 1) / 2)
@@ -321,16 +332,14 @@ class MultivariateNormal(Family):
         K = Z_shape[0]
         M = Z_shape[1]
         cov_con_mask = np.triu(np.ones((self.D, self.D), dtype=np.bool_), 0)
-        T_z_mean = tf.reduce_mean(Z, 3)
-        Z_KMTD = tf.transpose(Z, [0, 1, 3, 2])
+        Z_first_mom = Z
         # samps x D
-        ZZT_KMTDD = tf.matmul(tf.expand_dims(Z_KMTD, 4), tf.expand_dims(Z_KMTD, 3))
-        T_z_cov_KMTDZ = tf.transpose(
-            tf.boolean_mask(tf.transpose(ZZT_KMTDD, [3, 4, 0, 1, 2]), cov_con_mask),
-            [1, 2, 3, 0],
+        Z_second_mom = tf.matmul(tf.expand_dims(Z, 3), tf.expand_dims(Z, 2))
+        Z_sec_mom_no_repeats = tf.transpose(
+            tf.boolean_mask(tf.transpose(Z_second_mom, [2, 3, 0, 1]), cov_con_mask),
+            [1, 2, 0],
         )
-        T_z_cov = tf.reduce_mean(T_z_cov_KMTDZ, 2)
-        T_z = tf.concat((T_z_mean, T_z_cov), axis=2)
+        T_z = tf.concat((Z_first_mom, Z_sec_mom_no_repeats), axis=2)
         return T_z
 
     def compute_mu(self, params):
@@ -505,8 +514,7 @@ class MultivariateNormal(Family):
             loc=mu, covariance_matrix=Sigma
         )
         # dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma);
-        assert self.T == 1
-        log_p_z = dist.log_prob(Z[:, :, :, 0])
+        log_p_z = dist.log_prob(Z)
         return log_p_z
 
     def log_p_np(self, X, params):
@@ -524,7 +532,6 @@ class MultivariateNormal(Family):
         mu = params["mu"]
         Sigma = params["Sigma"]
         dist = scipy.stats.multivariate_normal(mean=mu, cov=Sigma)
-        assert self.T == 1
         log_p_x = dist.logpdf(X)
         return log_p_x
 
