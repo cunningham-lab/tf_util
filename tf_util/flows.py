@@ -17,8 +17,6 @@ import tensorflow as tf
 import numpy as np
 import scipy.linalg
 
-# edit 1
-
 # Time invariant flows
 class Layer:
     def __init__(self, name=""):
@@ -40,7 +38,7 @@ class Layer:
 
 
 class PlanarFlowLayer(Layer):
-    def __init__(self, name="PlanarFlow", dim=1, inits=None):
+    def __init__(self, name="", dim=1, inits=None):
         self.name = name
         self.dim = dim
         self.param_names = ["u", "w", "b"]
@@ -315,7 +313,6 @@ class SoftPlusLayer(Layer):
         sum_log_det_jacobians += log_det_jacobian
         return z_out, sum_log_det_jacobians
 
-
 class StructuredSpinnerLayer(Layer):
     def __init__(self, name, dim):
         self.name = name
@@ -558,6 +555,13 @@ class ElemMultLayer(Layer):
             z = tf.multiply(z, tf.expand_dims(self.a, 1))
         sum_log_det_jacobians += log_det_jacobian
         return z, sum_log_det_jacobians
+
+
+
+
+
+
+
 
 
 # Latent dynamical flows

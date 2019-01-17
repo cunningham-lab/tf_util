@@ -31,6 +31,67 @@ from tf_util.flows import (
     FullyConnectedFlowLayer,
     ElemMultLayer,
 )
+from tf_util.normalizing_flows import (
+    ElemMultFlow,
+    get_flow_class,
+    get_density_network_inits,
+)
+
+DTYPE = tf.float64
+
+def density_network(W, arch_dict, family):
+    D = arch_dict['D']
+    inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
+    num_layers = len(inits_by_layer)
+    # declare layer parameters with initializations
+    params = []
+    with tf.variable_scope("density_network"):
+        for i in range(num_layers):
+            params_i = []
+            inits_i = inits_by_layer[i]
+            dims_i = dims_by_layer[i]
+            num_inits = len(inits_i)
+            for j in range(num_inits):
+                print(j)
+                print(inits_i[j])
+                varname_ij = 'theta_%d_%d' % (i+1,j+1)
+                if (isinstance(inits_i[j], tf.Tensor)):
+                    var_ij = tf.get_variable(varname_ij, dtype=DTYPE, \
+                                             initializer=inits_i[j])
+                else:
+                    var_ij = tf.get_variable(varname_ij, shape=(dims_i[j],), dtype=DTYPE, \
+                                             initializer=inits_i[j])
+                params_i.append(tf.expand_dims(var_ij, 0))
+            params.append(tf.concat(params_i, 1))
+
+    # instantation normalizing flow for layer
+    Z = W
+    flow_layers = []
+    sum_log_det_jacobians = 0.0
+    ind = 0
+    if (arch_dict['elem_mult_flow']):
+        flow_layer = ElemMultFlow(params[ind], Z)
+        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(flow_layer)
+        ind += 1
+
+    flow_class = get_flow_class(arch_dict['TIF_flow_type'])
+    for i in range(arch_dict['repeats']):
+        flow_layer = flow_class(params[ind], Z)
+        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(flow_layer)
+        ind += 1
+
+    # need to add support mapping
+    if (family.support_mapping is not None):
+        raise NotImplementedError()
+
+    return Z, sum_log_det_jacobians, flow_layers
+
+
+
 
 
 def construct_density_network(flow_dict, D_Z, T):
@@ -467,7 +528,7 @@ def get_flowstring(flow_dict):
     latent_dynamics = flow_dict["latent_dynamics"]
     tif_flow_type = flow_dict["TIF_flow_type"]
     repeats = flow_dict["repeats"]
-    if flow_dict["scale_layer"]:
+    if flow_dict["elem_mult_flow"]:
         tif_str = "M_%d%s" % (repeats, tif_flow_type[:1])
     else:
         tif_str = "%d%s" % (repeats, tif_flow_type[:1])
