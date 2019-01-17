@@ -20,6 +20,8 @@ from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
 from tf_util.Bron_Kerbosch.reporter import Reporter
 import matplotlib.pyplot as plt
 
+def approx_equal(arg1, arg2, eps):
+    return np.max(np.square(arg1 - arg2)) < eps
 
 def get_sampler_func(dist, D):
     if dist is None:
@@ -73,7 +75,6 @@ def get_sampler_func(dist, D):
             x = dir_dist.rvs(1)[0]
             x = x + x_eps
             x = x / np.sum(x)
-            print(x)
             return x
 
         return _sampler
@@ -157,17 +158,17 @@ def get_density_func(dist, D):
 
     if dist["family"] == "delta":
         a = dist["a"]
-        return lambda x: 1.0 if (a == x) else 0.0
+        return lambda x: 1.0 if (approx_equal(a, x, 1e-16)) else 0.0
 
     elif dist["family"] == "uniform":
         a = dist["a"]
         b = dist["b"]
-        return lambda: np.power(1.0 / (b - a), D)
+        return lambda x: np.power(1.0 / (b - a), D)
 
     elif dist["family"] == "uniform_int":
         a = dist["a"]
         b = dist["b"]
-        return lambda: 1.0 / (b - a)
+        return lambda x: 1.0 / (b - a)
 
     elif dist["family"] == "multivariate_normal":
         mu = dist["mu"]
@@ -183,17 +184,19 @@ def get_density_func(dist, D):
         return get_density_func(dist, D)
 
     elif dist["family"] == "truncated_normal":
-        mu = dist["mu"]
-        Sigma = dist["Sigma"]
-        dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
-        return get_density_func(dist, D)
+        raise NotImplementedError()
+        #mu = dist["mu"]
+        #Sigma = dist["Sigma"]
+        #dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
+        #return get_density_func(dist, D)
 
     elif dist["family"] == "isotropic_truncated_normal":
-        mu = dist["mu"]
-        scale = dist["scale"]
-        Sigma = scale * np.eye(D)
-        dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
-        return get_density_func(dist, D)
+        raise NotImplementedError()
+        #mu = dist["mu"]
+        #scale = dist["scale"]
+        #Sigma = scale * np.eye(D)
+        #dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
+        #return get_density_func(dist, D)
 
     elif dist["family"] == "dirichlet":
         alpha = dist["alpha"]
@@ -272,34 +275,24 @@ def get_dist_str(dist):
         return "_ui_%dto%d" % (a, b)
 
     elif dist["family"] == "multivariate_normal":
-        mu = dist["mu"]
-        Sigma = dist["Sigma"]
         return "_mvn"
 
     elif dist["family"] == "isotropic_normal":
-        mu = dist["mu"]
         scale = dist["scale"]
         return "_in_s=%.3f" % scale
 
     elif dist["family"] == "truncated_normal":
-        mu = dist["mu"]
-        scale = dist["scale"]
         return "_tn"
 
     elif dist["family"] == "isotropic_truncated_normal":
-        mu = dist["mu"]
         scale = dist["scale"]
         return "_itn_s=%.2f" % scale
 
     elif dist["family"] == "dirichlet":
-        alpha = dist["alpha"]
         # not sure how to get a string here
         return "_dir"
 
     elif dist["family"] == "inv_wishart":
-        df = dist["df"]
-        Psi = dist["Psi"]
-        iw = invwishart(df=df, scale=Psi)
         return "_iw"
 
     elif dist["family"] == "isotropic_inv_wishart":
