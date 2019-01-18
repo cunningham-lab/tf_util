@@ -16,8 +16,8 @@
 import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 from cvxopt import spmatrix, amd
-from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
-from tf_util.Bron_Kerbosch.reporter import Reporter
+#from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
+#from tf_util.Bron_Kerbosch.reporter import Reporter
 import matplotlib.pyplot as plt
 
 def approx_equal(arg1, arg2, eps):
@@ -379,7 +379,7 @@ def get_GP_Sigma(tau, T, Ts):
                 K[j, i] = K[i, j]
     return K
 
-
+"""
 def get_S_D_graph(x, D, T):
     I = []
     J = []
@@ -480,3 +480,4 @@ def get_S_D_ME_covariance(Sigma_D, taus, T, Ts, eps=1e-6, tol=1e-8):
         errors[it] = error_it
     converged = it < max_iters
     return Sigma, converged
+"""
