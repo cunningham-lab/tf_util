@@ -94,12 +94,12 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     return Z, sum_log_det_jacobians, flow_layers
 
 
-def get_initdir(D, flow_dict, sigma, random_seed):
+def get_initdir(D, arch_dict, sigma, random_seed):
     # set file I/O stuff
     initdir = 'data/inits/';
-    flowstring = get_flowstring(flow_dict);
+    archstring = get_archstring(arch_dict);
     initdir = initdir + 'D=%d_%s_sigma=%.2f_rs=%d/' % \
-              (D, flowstring, sigma, random_seed);
+              (D, archstring, sigma, random_seed);
     return initdir
 
 def load_nf_init(initdir, arch_dict):
@@ -441,6 +441,20 @@ def count_params(all_params):
     return nparam_vals
 
 
+def log_grads(cost_grads, cost_grad_vals, ind):
+    cgv_ind = 0;
+    nparams = len(cost_grads);
+    for i in range(nparams):
+        grad = cost_grads[i];
+        grad_shape = grad.shape;
+        ngrad_vals = np.prod(grad_shape);
+        grad_reshape = np.reshape(grad, (ngrad_vals,));
+        for ii in range(ngrad_vals):
+            cost_grad_vals[ind, cgv_ind] = grad_reshape[ii];
+            cgv_ind += 1;
+    return None;
+
+
 def gradients(f, x, grad_ys=None):
     """
     An easier way of computing gradients in tensorflow. The difference from tf.gradients is
@@ -487,11 +501,31 @@ def Lop(f, x, v):
     ), "f and v should be of the same type"
     return gradients(f, x, grad_ys=v)
 
-
-def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
+def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     T_x_shape = tf.shape(T_x_mu_centered)
     M = T_x_shape[1]
-    H = -tf.reduce_mean(log_q_x)
+    half_M = M // 2
+    H = -tf.reduce_mean(log_q_z)
+    R = tf.reduce_mean(T_x_mu_centered[0], 0)
+    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
+    cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
+    grad_func1 = tf.gradients(cost_terms_1, all_params)
+
+    T_x_1 = T_x_mu_centered[0, :half_M, :]
+    T_x_2 = T_x_mu_centered[0, half_M:, :]
+    grad_con = Lop(T_x_1, all_params, T_x_2)
+    grads = []
+    nparams = len(all_params)
+    for i in range(nparams):
+        #grads.append(grad_func1[i] + c * grad_con[i])
+        grads.append(c*grad_con[i]/tf.cast(half_M, DTYPE))
+
+    return cost, grads, H
+
+"""def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
+    T_x_shape = tf.shape(T_x_mu_centered)
+    M = T_x_shape[1]
+    H = -tf.reduce_mean(log_q_z)
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
     cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
     cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
@@ -505,7 +539,7 @@ def AL_cost(log_q_x, T_x_mu_centered, Lambda, c, all_params):
     for i in range(nparams):
         grads.append(grad_func1[i] + c * grad_con[i])
 
-    return cost, grads, H
+    return cost, grads, H"""
 
 def load_nf_vars(initdir):
     saver = tf.train.import_meta_graph(initdir + 'model.meta', import_scope='DSN');
@@ -536,20 +570,20 @@ def memory_extension(input_arrays, array_cur_len):
         extended_arrays.append(extended_array)
     return extended_arrays
 
-def get_flowstring(flow_dict):
+def get_archstring(arch_dict):
     """Get string description of density network.
 
         Args:
-            flow_dict (dict): Specifies structure of approximating density network.
+            arch_dict (dict): Specifies structure of approximating density network.
 
         Returns:
             tif_str (str): String specifying time-invariant flow network architecture.
 
         """
-    latent_dynamics = flow_dict["latent_dynamics"]
-    tif_flow_type = flow_dict["TIF_flow_type"]
-    repeats = flow_dict["repeats"]
-    if flow_dict["elem_mult_flow"]:
+    latent_dynamics = arch_dict["latent_dynamics"]
+    tif_flow_type = arch_dict["TIF_flow_type"]
+    repeats = arch_dict["repeats"]
+    if arch_dict["elem_mult_flow"]:
         tif_str = "M_%d%s" % (repeats, tif_flow_type[:1])
     else:
         tif_str = "%d%s" % (repeats, tif_flow_type[:1])
