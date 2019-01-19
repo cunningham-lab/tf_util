@@ -517,8 +517,7 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     grads = []
     nparams = len(all_params)
     for i in range(nparams):
-        #grads.append(grad_func1[i] + c * grad_con[i])
-        grads.append(c*grad_con[i]/tf.cast(half_M, DTYPE))
+        grads.append(grad_func1[i] + c*grad_con[i]/tf.cast(half_M, DTYPE))
 
     return cost, grads, H
 

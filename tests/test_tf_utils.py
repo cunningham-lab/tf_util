@@ -33,7 +33,7 @@ def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats
 
 	grads = []
 	for i in range(num_params):
-		sum_grad = dcterm_dtheta[i] #dneg_H_dtheta[i] + dlambdaterm_dtheta[i] + dcterm_dtheta[i]
+		sum_grad = dneg_H_dtheta[i] + dlambdaterm_dtheta[i] + dcterm_dtheta[i]
 		grads.append(sum_grad)
 
 	return 0.0, grads, -neg_H
