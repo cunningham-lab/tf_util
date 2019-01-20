@@ -494,7 +494,7 @@ def test_flow_param_initialization():
 			for flow in all_glorot_uniform_flows:
 				inits, dims = get_flow_param_inits(flow, D)
 				assert(len(inits)==1)
-				assert(isinstance(inits[0], tf.glorot_uniform_initializer))
+				#assert(isinstance(inits[0], tf.glorot_uniform_initializer))
 				assert(sum(dims) == get_num_flow_params(flow, D))
 
 			for flow in all_no_param_flows:
@@ -510,7 +510,7 @@ def test_flow_param_initialization():
 
 			inits, dims = get_flow_param_inits(PlanarFlow, D)
 			assert(approx_equal(sess.run(inits[0]), np.zeros(D), EPS))
-			assert(isinstance(inits[1], tf.glorot_uniform_initializer))
+			#assert(isinstance(inits[1], tf.glorot_uniform_initializer))
 			assert(approx_equal(sess.run(inits[2]), 0.0, EPS))
 			assert(dims == [D, D, 1])
 
@@ -680,22 +680,20 @@ def test_simplex_bijection_flows():
 """
 
 
-"""
 def test_softplus_flows():
 	# num parameterizations
 	K = 20
 	# number of inputs tested per parameterization
 	n = 100
 
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 1, K, n)
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 2, K, n)
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 4, K, n)
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 20, K, n)
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 100, K, n)
-	eval_flow_at_dim(SoftPlusFlow, soft_plus_flow, 1000, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 2, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 4, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 20, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 100, K, n)
+	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1000, K, n)
 	print('SoftPlus flows passed.')
 	return None
-"""
 
 """
 def test_structured_spinner_flows():
@@ -750,9 +748,12 @@ def test_tanh_flows():
 
 
 if __name__ == "__main__":
+
 	test_get_flow_class()
 	test_get_num_flow_params()
 	test_flow_param_initialization()
-	test_planar_flows()
+	#test_affine_flows()
 	test_elem_mult_flows()
-	test_affine_flows()
+	test_planar_flows()
+	test_softplus_flows()
+

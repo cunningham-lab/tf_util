@@ -67,7 +67,6 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
                 params_i.append(tf.expand_dims(var_ij, 0))
             params.append(tf.concat(params_i, 1))
 
-    # instantation normalizing flow for layer
     Z = W
     flow_layers = []
     sum_log_det_jacobians = 0.0
@@ -89,7 +88,10 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
     # need to add support mapping
     if (support_mapping is not None):
-        raise NotImplementedError()
+        final_layer = support_mapping(Z)
+        Z, log_det_jacobian = final_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(final_layer)
 
     return Z, sum_log_det_jacobians, flow_layers
 

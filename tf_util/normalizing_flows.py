@@ -147,8 +147,14 @@ class NormFlow:
     def __init__(self, params, inputs):
         self.params = params
         self.inputs = inputs
-        self.dim = inputs.shape[2]
-        self.num_params = self.params.shape[1]
+        if (isinstance(inputs, tf.Tensor)):
+            self.dim = inputs.shape[2]
+        else:
+            self.dim = 0
+        if (isinstance(params, tf.Tensor)):
+            self.num_params = self.params.shape[1]
+        else:
+            self.num_params = 0
 
     def forward_and_jacobian(self, y):
         raise NotImplementedError(str(type(self)))
@@ -487,17 +493,16 @@ class SimplexBijectionFlow(NormFlow):
         return z, sum_log_det_jacobians
 
 class SoftPlusFlow(NormFlow):
-    def __init__(self, name="SoftPlusLayer"):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
+    def __init__(self, params, inputs):
+        super().__init__(params, inputs)
+        self.name = "SoftPlusFlow"
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
+    def forward_and_jacobian(self,):
+        z = self.inputs
         z_out = tf.log(1 + tf.exp(z))
         jacobian = tf.divide(1.0, 1.0 + tf.exp(-z))
-        log_det_jacobian = tf.log(tf.reduce_prod(jacobian, [2, 3]))
-        sum_log_det_jacobians += log_det_jacobian
-        return z_out, sum_log_det_jacobians
+        log_det_jac = tf.reduce_sum(tf.log(jacobian), axis=2)
+        return z_out, log_det_jac
 
 
 class StructuredSpinnerFlow(NormFlow):
