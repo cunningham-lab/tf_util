@@ -37,6 +37,11 @@ from tf_util.normalizing_flows import (
     get_density_network_inits,
 )
 
+from tf_util.normalizing_flows import ElemMultFlow, \
+    get_flow_class, \
+    get_density_network_inits
+
+
 DTYPE = tf.float64
 
 def density_network(W, arch_dict, support_mapping=None, initdir=None):
@@ -88,10 +93,13 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
     # need to add support mapping
     if (support_mapping is not None):
+        print('support mapping!!!')
         final_layer = support_mapping(Z)
         Z, log_det_jacobian = final_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(final_layer)
+    else:
+        print('this did NOT work')
 
     return Z, sum_log_det_jacobians, flow_layers
 
