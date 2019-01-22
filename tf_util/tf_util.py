@@ -93,7 +93,6 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
     # need to add support mapping
     if (support_mapping is not None):
-        print('support mapping!!!')
         final_layer = support_mapping(Z)
         Z, log_det_jacobian = final_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
