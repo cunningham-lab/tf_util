@@ -117,8 +117,6 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         Z, log_det_jacobian = final_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(final_layer)
-    else:
-        print('this did NOT work')
 
     return Z, sum_log_det_jacobians, flow_layers
 
@@ -139,10 +137,15 @@ def load_nf_init(initdir, arch_dict):
     dims_by_layer = []
     layer_ind = 1;
 
-    if (arch_dict['elem_mult_flow']):
+    if (arch_dict['mult_and_shift'] == 'pre'):
         a_init = tf.constant(theta['%s/theta_1_1:0' % scope], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
+        layer_ind += 1;
+
+        b_init = tf.constant(theta['%s/theta_2_1:0' % scope], dtype=DTYPE)
+        inits_by_layer.append([b_init])
+        dims_by_layer.append([b_init.shape])
         layer_ind += 1;
 
     for i in range(arch_dict['repeats']):
@@ -157,6 +160,17 @@ def load_nf_init(initdir, arch_dict):
             layer_ind += 1;
         else:
             raise NotImplementedError()
+
+    if (arch_dict['mult_and_shift'] == 'post'):
+        a_init = tf.constant(theta['%s/theta_%d_1:0' % (scope, layer_ind)], dtype=DTYPE)
+        inits_by_layer.append([a_init])
+        dims_by_layer.append([a_init.shape])
+        layer_ind += 1;
+
+        b_init = tf.constant(theta['%s/theta_%d_1:0' % (scope, layer_ind)], dtype=DTYPE)
+        inits_by_layer.append([b_init])
+        dims_by_layer.append([b_init.shape])
+        layer_ind += 1;
 
     return inits_by_layer, dims_by_layer
 
