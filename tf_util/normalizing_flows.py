@@ -119,8 +119,12 @@ def get_density_network_inits(arch_dict):
     if (arch_dict['latent_dynamics'] is not None):
         raise NotImplementedError()
 
-    if (arch_dict['elem_mult_flow']):
+    if (arch_dict['mult_and_shift'] == 'pre'):
         em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict['D'])
+        inits_by_layer.append(em_inits)
+        dims_by_layer.append(em_dims)
+
+        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict['D'])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
 
@@ -129,6 +133,15 @@ def get_density_network_inits(arch_dict):
         inits, dims = get_flow_param_inits(TIF_flow, D)
         inits_by_layer.append(inits)
         dims_by_layer.append(dims)
+
+    if (arch_dict['mult_and_shift'] == 'post'):
+        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict['D'])
+        inits_by_layer.append(em_inits)
+        dims_by_layer.append(em_dims)
+
+        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict['D'])
+        inits_by_layer.append(em_inits)
+        dims_by_layer.append(em_dims)
 
     return inits_by_layer, dims_by_layer
 
@@ -437,37 +450,47 @@ class RadialFlow(NormFlow):
         return z_out, sum_log_det_jacobians
 
 
-
 class ShiftFlow(NormFlow):
-    def __init__(self, name, dim):
-        self.name = name
-        self.dim = dim
-        self.param_names = ["b"]
-        self.lock = False
+    """Addition layer.
 
-    def get_layer_info(self,):
-        b_dim = (self.dim, 1)
-        dims = [b_dim]
-        initializers = [tf.constant(-np.ones((self.dim, 1)))]
-        return self.name, self.param_names, dims, initializers, self.lock
+    Shifts D-dimensional data with a D-dimensional offset
 
-    def connect_parameter_network(self, theta_layer):
-        self.b = theta_layer[0]
-        # params will have batch dimension if result of parameter network
-        self.param_network = len(self.b.shape) == 3
-        return None
+    # Attributes
+        self.b (tf.tensor): [K, self.dim] The $$b$$ parameter.
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        K, M, D, T = tensor4_shape(z)
-        if not self.param_network:
-            b = tf.expand_dims(tf.expand_dims(self.b, 0), 0)
-            z = z + b
-            log_det_jacobian = 0.0
-        else:
-            z = z + tf.expand_dims(self.b, 1)
-            log_det_jacobian = 0.0
-        sum_log_det_jacobians += log_det_jacobian
-        return z, sum_log_det_jacobians
+    """
+
+    def __init__(self, params, inputs):
+        """Elementwise multiplication layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "ElemMultFlow"
+        self.b = params
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, self.dim] Result of operations. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        n = tf.shape(z)[1]
+
+        # compute the log abs det jacobian
+        log_det_jac = tf.zeros_like(z[:,:,0])
+
+        # compute output
+        z = z + tf.expand_dims(self.b, 1)
+        return z, log_det_jac
 
 
 

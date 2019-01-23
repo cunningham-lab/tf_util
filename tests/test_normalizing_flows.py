@@ -645,7 +645,6 @@ def test_radial_flows():
 	return None
 """
 
-"""
 def test_shift_flows():
 	# num parameterizations
 	K = 20
@@ -660,7 +659,6 @@ def test_shift_flows():
 	eval_flow_at_dim(ShiftFlow, shift_flow, 1000, K, n)
 	print('Shift flows passed.')
 	return None
-"""
 
 """
 def test_simplex_bijection_flows():
@@ -755,5 +753,6 @@ if __name__ == "__main__":
 	#test_affine_flows()
 	test_elem_mult_flows()
 	test_planar_flows()
+	test_shift_flows()
 	test_softplus_flows()
 

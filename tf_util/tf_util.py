@@ -32,6 +32,7 @@ from tf_util.flows import (
     ElemMultLayer,
 )
 from tf_util.normalizing_flows import (
+    ShiftFlow, 
     ElemMultFlow,
     get_flow_class,
     get_density_network_inits,
@@ -76,8 +77,14 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     flow_layers = []
     sum_log_det_jacobians = 0.0
     ind = 0
-    if (arch_dict['elem_mult_flow']):
+    if (arch_dict['mult_and_shift'] == 'pre'):
         flow_layer = ElemMultFlow(params[ind], Z)
+        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(flow_layer)
+        ind += 1
+
+        flow_layer = ShiftFlow(params[ind], Z)
         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(flow_layer)
@@ -86,6 +93,19 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     flow_class = get_flow_class(arch_dict['TIF_flow_type'])
     for i in range(arch_dict['repeats']):
         flow_layer = flow_class(params[ind], Z)
+        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(flow_layer)
+        ind += 1
+
+    if (arch_dict['mult_and_shift'] == 'post'):
+        flow_layer = ElemMultFlow(params[ind], Z)
+        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        sum_log_det_jacobians += log_det_jacobian
+        flow_layers.append(flow_layer)
+        ind += 1
+
+        flow_layer = ShiftFlow(params[ind], Z)
         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(flow_layer)
@@ -591,8 +611,10 @@ def get_archstring(arch_dict):
     latent_dynamics = arch_dict["latent_dynamics"]
     tif_flow_type = arch_dict["TIF_flow_type"]
     repeats = arch_dict["repeats"]
-    if arch_dict["elem_mult_flow"]:
-        tif_str = "M_%d%s" % (repeats, tif_flow_type[:1])
+    if arch_dict["mult_and_shift"] =='pre':
+        tif_str = "M_A_%d%s" % (repeats, tif_flow_type[:1])
+    elif arch_dict["mult_and_shift"] =='post':
+        tif_str = "%d%s_M_A" % (repeats, tif_flow_type[:1])
     else:
         tif_str = "%d%s" % (repeats, tif_flow_type[:1])
     if latent_dynamics is not None:
