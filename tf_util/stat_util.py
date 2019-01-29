@@ -16,12 +16,49 @@
 import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 from cvxopt import spmatrix, amd
-#from tf_util.Bron_Kerbosch.bronker_bosch3 import bronker_bosch3
-#from tf_util.Bron_Kerbosch.reporter import Reporter
 import matplotlib.pyplot as plt
 
-def approx_equal(arg1, arg2, eps):
-    return np.max(np.square(arg1 - arg2)) < eps
+def approx_equal(arg1, arg2, eps, allow_special=False):
+    if (allow_special):
+        neginf_inds1 = np.isneginf(arg1)
+        posinf_inds1 = np.isposinf(arg1)
+        nan_inds1 = np.isnan(arg1)
+        neginf_inds2 = np.isneginf(arg2)
+        posinf_inds2 = np.isposinf(arg2)
+        nan_inds2 = np.isnan(arg2)
+
+        evaltype = np.int32
+        assert(np.sum(np.abs(neginf_inds1.astype(evaltype) - neginf_inds2.astype(evaltype))) == 0)
+        assert(np.sum(np.abs(posinf_inds1.astype(evaltype) - posinf_inds2.astype(evaltype))) == 0)
+        assert(np.sum(np.abs(nan_inds1.astype(evaltype) - nan_inds2.astype(evaltype))) == 0)
+
+        nonfinite_inds1 = np.logical_or(neginf_inds1, np.logical_or(posinf_inds1, nan_inds1))
+        nonfinite_inds2 =np.logical_or(neginf_inds2, np.logical_or(posinf_inds2, nan_inds2))
+        num_nonfinite = nonfinite_inds1.shape[0]
+
+        finite_inds1 = np.logical_not(nonfinite_inds1)
+        finite_inds2 = np.logical_not(nonfinite_inds2)
+        num_finite = finite_inds1.shape[0]
+
+        arg1 = arg1[finite_inds1]
+        arg2 = arg2[finite_inds2]
+    else:
+        num_finite = np.prod(arg1.shape)
+
+    if (num_finite > 0):
+        maxerr = np.max(np.square(arg1 - arg2))
+    else:
+        if (num_nonfinite == 0):
+            print('Failed: given zero-length vector, so no test.')
+            return False
+        else: # nonfinite values matched
+            return True
+
+    if (maxerr < eps):
+        return True
+    else:
+        print('Failed: max error:', maxerr)
+        return False
 
 def get_sampler_func(dist, D):
     if dist is None:
