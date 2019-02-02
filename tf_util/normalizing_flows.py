@@ -17,6 +17,8 @@ import tensorflow as tf
 import numpy as np
 import scipy.linalg
 
+DTYPE = tf.float64
+
 def get_flow_class(flow_name):
     if flow_name == 'AffineFlow':
         return AffineFlow
@@ -74,6 +76,36 @@ def get_num_flow_params(flow_class, D):
         raise NotImplementedError()
     elif (flow_class == TanhFlow):
         return 0
+    else:
+        raise NotImplementedError()
+
+def get_flow_out_dim(flow_class, dim):
+    if flow_class == AffineFlow:
+        return dim
+    elif (flow_class == CholProdFlow):
+        raise NotImplementedError()
+    elif flow_class == ElemMultFlow:
+        return dim
+    elif (flow_class == ExpFlow):
+        return dim
+    elif (flow_class == IntervalFlow):
+        return dim
+    elif flow_class == PlanarFlow:
+        return dim
+    elif (flow_class == RadialFlow):
+        return dim
+    elif (flow_class == ShiftFlow):
+        return dim
+    elif (flow_class == SimplexBijectionFlow):
+        return dim + 1
+    elif (flow_class == SoftPlusFlow):
+        return dim
+    elif (flow_class == StructuredSpinnerFlow):
+        raise NotImplementedError()
+    elif (flow_class == StructuredSpinnerTanhFlow):
+        raise NotImplementedError()
+    elif (flow_class == TanhFlow):
+        return dim
     else:
         raise NotImplementedError()
 
@@ -158,6 +190,14 @@ class NormFlow:
     """
 
     def __init__(self, params, inputs):
+        """Norm flow layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
         self.params = params
         self.inputs = inputs
         if (isinstance(inputs, tf.Tensor)):
@@ -169,19 +209,53 @@ class NormFlow:
         else:
             self.num_params = 0
 
-    def forward_and_jacobian(self, y):
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
         raise NotImplementedError(str(type(self)))
 
 
 
 class AffineFlow(NormFlow):
+    """Affine flow layer.
+
+    f(z) = Az + b
+    log_det_jac = log(|det(A)|)
+
+    # Attributes
+        self.A (tf.tensor): [K, self.dim, self.dim] The $$A$$ parameter.
+        self.b (tf.tensor): [K, self.dim, self.dim] The $$b$$ parameter.
+
+    """
     def __init__(self, params, inputs):
+        """Affine flow layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
         super().__init__(params, inputs)
         self.name = "AffineFlow"
         self.A = params[:, :(tf.square(self.dim))]
         self.b = params[:, (tf.square(self.dim)):]
 
     def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
         z = tf.transpose(self.inputs, [0,2,1]) # make [K, dim, n]
         A_shape = tf.shape(self.A)
         K = A_shape[0]
@@ -193,9 +267,9 @@ class AffineFlow(NormFlow):
         log_det_jac = tf.tile(tf.expand_dims(log_det_jac, 1), \
                                    [1, tf.shape(self.inputs)[1]])
 
-        z = tf.matmul(A, z) + b
+        out = tf.transpose(tf.matmul(A, z) + b, [0,2,1])
 
-        return z, log_det_jac
+        return out, log_det_jac
 
 class CholProdFlow(NormFlow):
     def __init__(self, name="CholProdFlow", diag_eps=1e-6):
@@ -238,7 +312,8 @@ class CholProdFlow(NormFlow):
 class ElemMultFlow(NormFlow):
     """Elementwise multiplication layer.
 
-    Implements the function [imsert some tex]
+    f(z) = a * z
+    log_det_jac = sum_i log(abs(a_i))
 
     # Attributes
         self.a (tf.tensor): [K, self.dim] The $$a$$ parameter.
@@ -262,7 +337,7 @@ class ElemMultFlow(NormFlow):
         """Perform the flow operation and compute the log-abs-det-jac.
 
         # Returns 
-            f_z (tf.tensor): [K, self.dim] Result of operations. 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
             log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
                 value of the determinant of the jacobian of the mappings.
     
@@ -280,36 +355,93 @@ class ElemMultFlow(NormFlow):
 
 
 class ExpFlow(NormFlow):
-    def __init__(self, name="ExpLayer"):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
+    """Elementwise multiplication layer.
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        z_out = tf.exp(z)
-        log_det_jacobian = tf.reduce_sum(z, [2, 3])
-        sum_log_det_jacobians += log_det_jacobian
-        return z_out, sum_log_det_jacobians
+    f(z) = exp(z)
+    log_det_jac = sum_i z_i
+
+    """
+
+    def __init__(self, params, inputs):
+        """Exp layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "ExpFlow"
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        n = tf.shape(z)[1]
+
+        # compute the log abs det jacobian
+        log_det_jac = tf.reduce_sum(z, 2)
+
+        # compute output
+        z = tf.exp(z)
+        return z, log_det_jac
 
 
 class IntervalFlow(NormFlow):
-    def __init__(self, name="IntervalLayer", a=0.0, b=1.0):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
+    """Elementwise multiplication layer.
+
+    m = (b - a)/2
+    c = (a + b)/2
+
+    f(z) = m tanh(z) + c
+    log_det_jac = m (1 - sec^2(z))
+
+    """
+
+    def __init__(self, params, inputs, a, b):
+        """Exp layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        for i in range(a.shape[0]):
+            assert(a[i] < b[i])
+
+        super().__init__(params, inputs)
+        self.name = "IntervalFlow"
         self.a = a
         self.b = b
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        m = (self.b - self.a) / 2.0
-        c = (self.a + self.b) / 2.0
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+
+        m = np.expand_dims(np.expand_dims((self.b - self.a) / 2.0, 0), 0)
+        c = np.expand_dims(np.expand_dims((self.a + self.b) / 2.0, 0), 0)
+
         tanh_z = tf.tanh(z)
-        z_out = m * tanh_z + c
-        log_det_jacobian = tf.reduce_sum(
-            np.log(m) + tf.log(1.0 - (tanh_z ** 2)), [2, 3]
-        )
-        sum_log_det_jacobians += log_det_jacobian
-        return z_out, sum_log_det_jacobians
+        sech_z = tf.divide(1.0, tf.math.cosh(z))
+
+        out = tf.multiply(m, tanh_z) + c
+        log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(sech_z)), 2)
+        return out, log_det_jac
 
 
 
@@ -358,7 +490,7 @@ class PlanarFlow(NormFlow):
         """Perform the flow operation and compute the log-abs-det-jac.
 
         # Returns 
-            f_z (tf.tensor): [K, self.dim] Result of operations. 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
             log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
                 value of the determinant of the jacobian of the mappings.
     
@@ -381,73 +513,62 @@ class PlanarFlow(NormFlow):
 
 
 class RadialFlow(NormFlow):
-    def __init__(self, name="RadialFlow", dim=1):
-        self.name = name
-        self.dim = dim
-        self.param_names = ["z0", "log_alpha", "beta"]
-        self.param_network = False
-        self.z0 = None
-        self.beta_hat = None
-        self.log_alpha = None
-        self.beta = None
-        self.lock = False
+    """Radial flow layer.
 
-    def get_layer_info(self,):
-        z0_dim = (self.dim, 1)
-        log_alpha_dim = (1, 1)
-        beta_dim = (1, 1)
-        dims = [z0_dim, log_alpha_dim, beta_dim]
-        initializers = [
-            tf.ones(z0_dim, dtype=tf.float64),
-            tf.ones(log_alpha_dim, dtype=tf.float64),
-            tf.zeros(beta_dim, dtype=tf.float64),
-        ]
-        return self.name, self.param_names, dims, initializers, self.lock
+    f(z) = z + beta h(alpha, r)(z-z0)
+    log_det_jac = [1+betah(alpha,r)]^(d-1) [1+betah(alpha,r) + betah'(alpha,r)r]
 
-    def get_params(self,):
-        if not self.param_network:
-            print("not param network")
-            return (
-                tf.expand_dims(self.z0, 0),
-                tf.expand_dims(self.log_alpha, 0),
-                tf.expand_dims(self.beta_hat, 0),
-            )
-        else:
-            print("using param network")
-            return self.z0, self.log_alpha, self.beta_hat
+    # Attributes
+        self.alpha (tf.tensor): [K, 1] The $$\alpha$$ parameter.
+        self.beta (tf.tensor): [K, 1] The $$\beta$$ parameter.
+        self.z0 (tf.tensor): [K, self.dim] The $$z_0$$ parameter.
 
-    def connect_parameter_network(self, theta_layer):
-        self.z0, self.log_alpha, self.beta = theta_layer
-        alpha = tf.exp(self.log_alpha)
-        self.param_network = len(self.z0.shape) == 3
-        self.beta_hat = -alpha + tf.log(1 + tf.exp(self.beta))
-        return None
+    """
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians, reuse=False):
-        z0, alpha, beta = self.get_params()
-        K, M, D, T = tensor4_shape(z)
+    def __init__(self, params, inputs):
+        """Radial flow layer constructor.
 
-        alpha = tf.expand_dims(alpha, 1)
-        beta = tf.expand_dims(beta, 1)
-        z0 = tf.expand_dims(z0, 1)
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "RadialFlow"
+        self.alpha = params[:,0:1]
+        self._beta = params[:,1:2]
+        self.z0 = params[:,2:]
 
-        d = z - z0
-        r = tf.expand_dims(tf.linalg.norm(d, ord="euclidean", axis=2), 2)
-        h = tf.divide(1.0, alpha + r)
-        h_prime = tf.divide(-1.0, tf.square(alpha + r))
+        # reparameterize to ensure invertibility
+        m_beta = tf.log(1.0 + tf.exp(self._beta))
+        self.beta = -self.alpha + m_beta
 
-        z_out = z + beta * h * d
-        log_det_jacobian = tf.cast(D - 1, tf.float64) * tf.log(
-            tf.abs(1.0 + tf.multiply(beta, h))
-        ) + tf.log(
-            tf.abs(
-                1.0 + tf.multiply(beta, h) + tf.multiply(beta, tf.multiply(h_prime, r))
-            )
-        )
-        log_det_jacobian = tf.reduce_sum(log_det_jacobian, [2, 3])
-        sum_log_det_jacobians += log_det_jacobian
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
 
-        return z_out, sum_log_det_jacobians
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        alpha = tf.expand_dims(self.alpha, 1)
+        beta = tf.expand_dims(self.beta, 1)
+        z0 = tf.expand_dims(self.z0, 1)
+
+        r = tf.expand_dims(tf.linalg.norm(z, axis=2), 2)
+        h = 1.0 / (alpha + r)
+        hprime = -1.0 / tf.square(alpha + r)
+
+        out = z + beta*h*(z - z0)
+
+        log_det_jac1 = (tf.cast(self.dim, dtype=DTYPE)-1.0) * tf.log((1.0 + beta*h))
+        log_det_jac2 = tf.log(1.0 + beta*h + beta*hprime*r)
+        log_det_jac = log_det_jac1+log_det_jac2
+
+        return out, log_det_jac[:,:,0]
 
 
 class ShiftFlow(NormFlow):
@@ -477,7 +598,7 @@ class ShiftFlow(NormFlow):
         """Perform the flow operation and compute the log-abs-det-jac.
 
         # Returns 
-            f_z (tf.tensor): [K, self.dim] Result of operations. 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
             log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
                 value of the determinant of the jacobian of the mappings.
     
@@ -495,25 +616,46 @@ class ShiftFlow(NormFlow):
 
 
 class SimplexBijectionFlow(NormFlow):
-    def __init__(self, name="SimplexBijectionFlow"):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
+    """Simplex bijection layer.
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        D = tf.shape(z)[2]
+    out = (e^z1 / (sum i e^zi + 1), .., e^z_d-1 / (sum i e^zi + 1), 1 / (sum i e^zi + 1))
+    log_det_jac = log(1 - (sum i e^zi / (sum i e^zi+1)) - D log(sum i e^zi + 1) + sum i zi
+
+    """
+    def __init__(self, params, inputs):
+        """Simplex bijection layer layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "SimplexBijectionFlow"
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
         ex = tf.exp(z)
-        den = tf.reduce_sum(ex, 2) + 1.0
-        log_dets = (
-            tf.log(1.0 - (tf.reduce_sum(ex, 2) / den))
-            - tf.cast(D, tf.float64) * tf.log(den)
+        sum_ex = tf.reduce_sum(ex, 2)
+        den = sum_ex + 1.0
+        log_det_jac = (
+            tf.log(1.0 - (sum_ex / den))
+            - tf.cast(self.dim, tf.float64) * tf.log(den)
             + tf.reduce_sum(z, 2)
         )
-        z = tf.concat(
+        out = tf.concat(
             (ex / tf.expand_dims(den, 2), 1.0 / tf.expand_dims(den, 2)), axis=2
         )
-        sum_log_det_jacobians += tf.reduce_sum(log_dets, 2)
-        return z, sum_log_det_jacobians
+        return out, log_det_jac
 
 class SoftPlusFlow(NormFlow):
     def __init__(self, params, inputs):
@@ -613,16 +755,44 @@ class StructuredSpinnerTanhFlow(StructuredSpinnerFlow):
         return z_out, sum_log_det_jacobians
 
 class TanhFlow(NormFlow):
-    def __init__(self, name="TanhLayer"):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
+    """Tanh layer.
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        z_out = tf.tanh(z)
-        log_det_jacobian = tf.reduce_sum(tf.log(1.0 - (z_out ** 2)), [2, 3])
-        sum_log_det_jacobians += log_det_jacobian
-        return z_out, sum_log_det_jacobians
+    f(z) = tanh(z)
+    log_det_jac = sum_i log(abs(1 - sec^2(z_i)))
+
+    """
+
+    def __init__(self, params, inputs):
+        """Tanh layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "TanhFlow"
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        n = tf.shape(z)[1]
+
+        # compute the log abs det jacobian
+        log_det_jac = tf.reduce_sum(tf.log(1.0 - tf.divide(1.0, tf.square(tf.math.cosh(z)))), 2)
+
+        # compute output
+        out = tf.tanh(z)
+
+        return out, log_det_jac
 
 
 
