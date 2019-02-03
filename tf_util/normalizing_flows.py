@@ -401,7 +401,7 @@ class IntervalFlow(NormFlow):
     c = (a + b)/2
 
     f(z) = m tanh(z) + c
-    log_det_jac = m (1 - sec^2(z))
+    log_det_jac = m (1 - tanh^2(z))
 
     """
 
@@ -437,10 +437,9 @@ class IntervalFlow(NormFlow):
         c = np.expand_dims(np.expand_dims((self.a + self.b) / 2.0, 0), 0)
 
         tanh_z = tf.tanh(z)
-        sech_z = tf.divide(1.0, tf.math.cosh(z))
 
         out = tf.multiply(m, tanh_z) + c
-        log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(sech_z)), 2)
+        log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(tanh_z)), 2)
         return out, log_det_jac
 
 
@@ -786,11 +785,13 @@ class TanhFlow(NormFlow):
         z = self.inputs
         n = tf.shape(z)[1]
 
+        tanh_z = tf.tanh(z)
+
         # compute the log abs det jacobian
-        log_det_jac = tf.reduce_sum(tf.log(1.0 - tf.divide(1.0, tf.square(tf.math.cosh(z)))), 2)
+        log_det_jac = tf.reduce_sum(tf.log(1.0 - tf.square(tanh_z)), 2)
 
         # compute output
-        out = tf.tanh(z)
+        out = tanh_z
 
         return out, log_det_jac
 

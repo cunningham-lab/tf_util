@@ -162,7 +162,7 @@ def interval_flow(z, params, a, b):
 	c = (a + b) / 2.0
 
 	out = m * np.tanh(z) + c
-	log_det_jac = np.sum(np.log(m) + np.log(1.0 - (1.0 / np.square(np.cosh(z)))))
+	log_det_jac = np.sum(np.log(m) + np.log(1.0 - np.square(np.tanh(z))))
 	
 	return out, log_det_jac
 
@@ -388,7 +388,7 @@ def tanh_flow(z, params):
 	assert(num_params == get_num_flow_params(TanhFlow, D))
 
 	out = np.tanh(z)
-	log_det_jac = np.sum(np.log(1 - (1.0 / np.square(np.cosh(z)))))
+	log_det_jac = np.sum(np.log(1 - np.square(np.tanh(z))))
 
 	return out, log_det_jac
 
