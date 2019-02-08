@@ -272,40 +272,73 @@ class AffineFlow(NormFlow):
         return out, log_det_jac
 
 class CholProdFlow(NormFlow):
-    def __init__(self, name="CholProdFlow", diag_eps=1e-6):
-        self.name = name
-        self.param_names = []
-        self.param_network = False
-        self.diag_eps = diag_eps
+    """Cholesky product flow layer.
 
-    def forward_and_jacobian(self, z, sum_log_det_jacobians):
-        K, M, D_Z, T = tensor4_shape(z)
-        z_KMD_Z = z[:, :, :, 0]
-        # generalize this for more time points
-        L = tf.contrib.distributions.fill_triangular(z_KMD_Z)
-        sqrtD = tf.shape(L)[2]
-        sqrtD_flt = tf.cast(sqrtD, tf.float64)
-        D = tf.square(sqrtD)
-        L_pos_diag = tf.contrib.distributions.matrix_diag_transform(L, tf.exp)
-        LLT = tf.matmul(L_pos_diag, tf.transpose(L_pos_diag, [0, 1, 3, 2]))
-        diag_boost = self.diag_eps * tf.eye(sqrtD, batch_shape=[K, M], dtype=tf.float64)
-        LLT = LLT + diag_boost
-        LLT_vec = tf.reshape(LLT, [K, M, D])
-        z = tf.expand_dims(LLT_vec, 3)
-        # update this for T > 1
+    f(z) = L(z)L(z)^T
+    where
+    L(z) = [e^z1,    0,   .., .., 0]
+           [z2  , e^z3,    0, .., 0]
+           [z4  ,   z5, e^z6, .., 0]
+           [..  ,   ..,            ]
 
-        L_diag_els = tf.matrix_diag_part(L)
-        L_pos_diag_els = tf.matrix_diag_part(L_pos_diag)
+    log_det_jac = (See Docs)
+
+    # Attributes
+        self.A (tf.tensor): [K, self.dim, self.dim] The $$A$$ parameter.
+        self.b (tf.tensor): [K, self.dim, self.dim] The $$b$$ parameter.
+
+    """
+    def __init__(self, params, inputs):
+        """Affine flow layer constructor.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "CholProdFlow"
+        self.diag_eps = 1e-16
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        K = tf.shape(z)[0]
+        M = tf.shape(z)[1]
+        z_dim = tf.shape(z)[2]
+
+        _L = tf.contrib.distributions.fill_triangular(z)
+        z_diag_elems = tf.matrix_diag_part(_L)
+        L = tf.contrib.distributions.matrix_diag_transform(_L, tf.exp)
+        D = tf.shape(L)[2]
+        float_D = tf.cast(D, tf.float64)
+        L_diag_elems = tf.matrix_diag_part(L)
+
+        Sigma = tf.matmul(L, tf.transpose(L, [0, 1, 3, 2]))
+        #diag_boost = self.diag_eps * tf.eye(D, batch_shape=[K, M], dtype=tf.float64)
+        #LLT = LLT + diag_boost
+        vecSigma = tf.reshape(Sigma, [K,M,D*D])
+
+        L_log_det = tf.reduce_sum(z_diag_elems, 2)
+
         var = tf.cast(tf.range(1, sqrtD + 1), tf.float64)
-        pos_diag_support_log_det = tf.reduce_sum(L_diag_els, 2)
-        #
-        diag_facs = tf.expand_dims(tf.expand_dims(sqrtD_flt - var + 1.0, 0), 0)
-        chol_prod_log_det = sqrtD_flt * np.log(2.0) + tf.reduce_sum(
-            tf.multiply(diag_facs, tf.log(L_pos_diag_els)), 2
+        diag_facs = tf.expand_dims(tf.expand_dims(floatD - var + 1.0, 0), 0)
+        
+        chol_prod_log_det = float_D * np.log(2.0) + tf.reduce_sum(
+            tf.multiply(diag_facs, tf.log(L_diag_elems)), 2
         )
-        sum_log_det_jacobians += pos_diag_support_log_det + chol_prod_log_det
 
-        return z, sum_log_det_jacobians
+        log_det_jac = L_log_det + chol_prod_log_det
+
+        return vecSigma, log_det_jac
 
 
 
@@ -757,7 +790,7 @@ class TanhFlow(NormFlow):
     """Tanh layer.
 
     f(z) = tanh(z)
-    log_det_jac = sum_i log(abs(1 - sec^2(z_i)))
+    log_det_jac = sum_i log(abs(1 - tanh^2(z_i)))
 
     """
 

@@ -78,6 +78,8 @@ def chol_prod_flow(z, params):
 	num_params = params.shape[0]
 	assert(num_params == get_num_flow_params(CholProdFlow, D))
 
+	# I can't find the numpy implementation of the fill triangular method!!!
+
 	raise NotImplementedError()
 
 # Elementwise multiplication flows
