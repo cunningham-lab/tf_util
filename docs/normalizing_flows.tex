@@ -1,0 +1,79 @@
+% You should title the file with a .tex extension (hw1.tex, for example)
+\documentclass[11pt]{article}
+
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{amssymb}
+\usepackage{wrapfig}
+\usepackage{fancyhdr}
+\usepackage{tikz-qtree}
+\usepackage{tikz-qtree-compat}
+\usepackage[normalem]{ulem}
+\usepackage{tikz}
+\usepackage{graphicx}
+\DeclareMathOperator*{\argmin}{argmin}
+\DeclareMathOperator*{\argmax}{argmax}
+
+\oddsidemargin0cm
+\topmargin-2cm     %I recommend adding these three lines to increase the 
+\textwidth16.5cm   %amount of usable space on the page (and save trees)
+\textheight23.5cm  
+
+\newcommand{\question}[2] {\vspace{.25in} \hrule\vspace{0.5em}
+\noindent{\bf #1: #2} \vspace{0.5em}
+\hrule \vspace{.10in}}
+\renewcommand{\part}[1] {\vspace{.10in} {\bf (#1)}}
+
+\newcommand{\myname}{Sean Bittner}
+\newcommand{\myandrew}{srb2201@columbia.edu}
+\newcommand{\myhwnum}{12}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 1pt}
+ 
+\DeclarePairedDelimiter\abs{\lvert}{\rvert}%
+ %
+\pagestyle{fancyplain}
+\rhead{\fancyplain{}{\myname\\ \myandrew}}
+
+\begin{document}
+
+\medskip                        % Skip a "medium" amount of space
+                                % (latex determines what medium is)
+                                % Also try: \bigskip, \littleskip
+
+\thispagestyle{plain}
+\begin{center}                  % Center the following lines
+{\Large Normalizing flows in tf\_utils} \\
+Sean Bittner \\
+February 8, 2019 \\
+\end{center}
+
+\textbf{Planar Flows}: \\
+\[f(z) = z + h(w^\top z + b)\]
+\[ \frac{d f(z)}{dz} = some expression \]
+
+\textbf{Cholesky Product Flows}: \\
+\[ f(z) = \text{vec}(L(z)L(z)^\top) \]
+
+\[L(z) = \begin{bmatrix} e^{z_1} & 0 & ... &  0 \\ z_2 & e^{z_3} &  & \\ z_4 & z_5 & e^{z_6} &  & \\ ... & & & \\ \end{bmatrix}\]
+
+\[\text{diag}(z) = \begin{bmatrix} z_1 \\ z_3 \\ z_6 \\ .. \end{bmatrix}, \text{diag}(L(z)) = \begin{bmatrix} e^{z_1} \\ e^{z_3} \\ e^{z_6} \\ .. \end{bmatrix} \]
+
+\[vec(M) = \begin{bmatrix} M_{11} \\ M_{21} \\ M_{22} \\ M_{31} \\ ... \\ M_{DD} \end{bmatrix} \]
+
+\[\begin{vmatrix} \frac{d L(z)}{dz} \end{vmatrix} = \prod_{d=1}^D \text{diag}(L(z))_d = \prod_{d=1}^D e^{\text{diag}(z)_d} \]
+
+\[\log(\begin{vmatrix} \frac{d L(z)}{dz}) \end{vmatrix} = \log(\prod_{d=1}^D e^{\text{diag}(z)_d}) = \sum_{d=1}^D \text{diag}(z)_d \]
+
+\[ \Sigma(z) = L(z) L(z)^\top \]
+\[\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{d L(z)} \end{vmatrix} = 2^D \prod_{d=1}^D L_{dd}^{D-d+1} \]
+
+\[\log (\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{d L(z)} \end{vmatrix}) = D \log(2) \sum_{d=1}^D (D-d+1) \log(\text{diag}(L(z))_d) \]
+\[ =  D \log(2) \sum_{d=1}^D (D-d+1) \text{diag}(z)_d \]
+
+\[\log(\begin{vmatrix} \frac{d f(z)}{dz} \end{vmatrix}) = \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \frac{dL(z)}{dz} \end{vmatrix}) = \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \end{vmatrix} \begin{vmatrix} \frac{dL(z)}{dz} \end{vmatrix}) =  \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \end{vmatrix}) + \log( \begin{vmatrix} \frac{dL(z)}{dz} \end{vmatrix}) \]
+
+\end{document}
+
