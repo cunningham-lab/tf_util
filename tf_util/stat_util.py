@@ -15,7 +15,7 @@
 # ==============================================================================
 import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
-from cvxopt import spmatrix, amd
+#from cvxopt import spmatrix, amd
 import matplotlib.pyplot as plt
 
 
