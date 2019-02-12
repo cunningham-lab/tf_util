@@ -32,26 +32,29 @@ from tf_util.flows import (
     ElemMultLayer,
 )
 from tf_util.normalizing_flows import (
-    ShiftFlow, 
+    ShiftFlow,
     ElemMultFlow,
     get_flow_class,
     get_density_network_inits,
 )
 
-from tf_util.normalizing_flows import ElemMultFlow, \
-    get_flow_class, \
-    get_density_network_inits
+from tf_util.normalizing_flows import (
+    ElemMultFlow,
+    get_flow_class,
+    get_density_network_inits,
+)
 
 
 DTYPE = tf.float64
 
+
 def density_network(W, arch_dict, support_mapping=None, initdir=None):
-    D = arch_dict['D']
-    if (initdir is None):
+    D = arch_dict["D"]
+    if initdir is None:
         inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
     else:
         inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
-        print('Loaded optimized initialization.')
+        print("Loaded optimized initialization.")
 
     num_layers = len(inits_by_layer)
     # declare layer parameters with initializations
@@ -63,13 +66,18 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
             dims_i = dims_by_layer[i]
             num_inits = len(inits_i)
             for j in range(num_inits):
-                varname_ij = 'theta_%d_%d' % (i+1,j+1)
-                if (isinstance(inits_i[j], tf.Tensor)):
-                    var_ij = tf.get_variable(varname_ij, dtype=DTYPE, \
-                                             initializer=inits_i[j])
+                varname_ij = "theta_%d_%d" % (i + 1, j + 1)
+                if isinstance(inits_i[j], tf.Tensor):
+                    var_ij = tf.get_variable(
+                        varname_ij, dtype=DTYPE, initializer=inits_i[j]
+                    )
                 else:
-                    var_ij = tf.get_variable(varname_ij, shape=(dims_i[j],), dtype=DTYPE, \
-                                             initializer=inits_i[j])
+                    var_ij = tf.get_variable(
+                        varname_ij,
+                        shape=(dims_i[j],),
+                        dtype=DTYPE,
+                        initializer=inits_i[j],
+                    )
                 params_i.append(tf.expand_dims(var_ij, 0))
             params.append(tf.concat(params_i, 1))
 
@@ -77,7 +85,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     flow_layers = []
     sum_log_det_jacobians = 0.0
     ind = 0
-    if (arch_dict['mult_and_shift'] == 'pre'):
+    if arch_dict["mult_and_shift"] == "pre":
         flow_layer = ElemMultFlow(params[ind], Z)
         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
@@ -90,15 +98,15 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         flow_layers.append(flow_layer)
         ind += 1
 
-    flow_class = get_flow_class(arch_dict['TIF_flow_type'])
-    for i in range(arch_dict['repeats']):
+    flow_class = get_flow_class(arch_dict["TIF_flow_type"])
+    for i in range(arch_dict["repeats"]):
         flow_layer = flow_class(params[ind], Z)
         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(flow_layer)
         ind += 1
 
-    if (arch_dict['mult_and_shift'] == 'post'):
+    if arch_dict["mult_and_shift"] == "post":
         flow_layer = ElemMultFlow(params[ind], Z)
         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
@@ -112,7 +120,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         ind += 1
 
     # need to add support mapping
-    if (support_mapping is not None):
+    if support_mapping is not None:
         final_layer = support_mapping(Z)
         Z, log_det_jacobian = final_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
@@ -123,57 +131,67 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
 def get_initdir(D, arch_dict, sigma, random_seed):
     # set file I/O stuff
-    initdir = 'data/inits/';
-    archstring = get_archstring(arch_dict);
-    initdir = initdir + 'D=%d_%s_sigma=%.2f_rs=%d/' % \
-              (D, archstring, sigma, random_seed);
+    initdir = "data/inits/"
+    archstring = get_archstring(arch_dict)
+    initdir = initdir + "D=%d_%s_sigma=%.2f_rs=%d/" % (
+        D,
+        archstring,
+        sigma,
+        random_seed,
+    )
     return initdir
 
-def load_nf_init(initdir, arch_dict):
-    initfile = np.load(initdir + 'theta.npz');
-    theta = initfile['theta'][()];
-    scope = 'density_network'
-    inits_by_layer = [];
-    dims_by_layer = []
-    layer_ind = 1;
 
-    if (arch_dict['mult_and_shift'] == 'pre'):
-        a_init = tf.constant(theta['%s/theta_1_1:0' % scope], dtype=DTYPE)
+def load_nf_init(initdir, arch_dict):
+    initfile = np.load(initdir + "theta.npz")
+    theta = initfile["theta"][()]
+    scope = "density_network"
+    inits_by_layer = []
+    dims_by_layer = []
+    layer_ind = 1
+
+    if arch_dict["mult_and_shift"] == "pre":
+        a_init = tf.constant(theta["%s/theta_1_1:0" % scope], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
-        layer_ind += 1;
+        layer_ind += 1
 
-        b_init = tf.constant(theta['%s/theta_2_1:0' % scope], dtype=DTYPE)
+        b_init = tf.constant(theta["%s/theta_2_1:0" % scope], dtype=DTYPE)
         inits_by_layer.append([b_init])
         dims_by_layer.append([b_init.shape])
-        layer_ind += 1;
+        layer_ind += 1
 
-    for i in range(arch_dict['repeats']):
-        if (arch_dict['TIF_flow_type'] == 'PlanarFlow'):
-            u_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 1)], dtype=DTYPE)
-            w_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 2)], dtype=DTYPE)
-            b_init = tf.constant(theta['%s/theta_%d_%d:0' % (scope, layer_ind, 3)], dtype=DTYPE)
+    for i in range(arch_dict["repeats"]):
+        if arch_dict["TIF_flow_type"] == "PlanarFlow":
+            u_init = tf.constant(
+                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 1)], dtype=DTYPE
+            )
+            w_init = tf.constant(
+                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 2)], dtype=DTYPE
+            )
+            b_init = tf.constant(
+                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 3)], dtype=DTYPE
+            )
             init_i = [u_init, w_init, b_init]
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
-            inits_by_layer.append(init_i);
+            inits_by_layer.append(init_i)
             dims_by_layer.append(dims_i)
-            layer_ind += 1;
+            layer_ind += 1
         else:
             raise NotImplementedError()
 
-    if (arch_dict['mult_and_shift'] == 'post'):
-        a_init = tf.constant(theta['%s/theta_%d_1:0' % (scope, layer_ind)], dtype=DTYPE)
+    if arch_dict["mult_and_shift"] == "post":
+        a_init = tf.constant(theta["%s/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
-        layer_ind += 1;
+        layer_ind += 1
 
-        b_init = tf.constant(theta['%s/theta_%d_1:0' % (scope, layer_ind)], dtype=DTYPE)
+        b_init = tf.constant(theta["%s/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([b_init])
         dims_by_layer.append([b_init.shape])
-        layer_ind += 1;
+        layer_ind += 1
 
     return inits_by_layer, dims_by_layer
-
 
 
 def construct_density_network(flow_dict, D_Z, T):
@@ -302,12 +320,11 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
     TIF_flow_type = flow_dict["TIF_flow_type"]
     repeats = flow_dict["repeats"]
     elem_mult_flow = flow_dict["elem_mult_flow"]
-    nlayers = repeats + elem_mult_flow;
-    if ("inits" in flow_dict.keys()):
-        inits = flow_dict["inits"];
+    nlayers = repeats + elem_mult_flow
+    if "inits" in flow_dict.keys():
+        inits = flow_dict["inits"]
     else:
-        inits = nlayers*[None];
-
+        inits = nlayers * [None]
 
     if TIF_flow_type == "ScalarFlowLayer":
         flow_class = ElemMultLayer
@@ -345,11 +362,19 @@ def construct_time_invariant_flow(flow_dict, D_Z, T):
         raise NotImplementedError()
 
     if elem_mult_flow:
-        layers.append(ElemMultLayer("ScalarFlow_Layer_%d" % layer_ind, D_Z, inits=inits[layer_ind-1]))
+        layers.append(
+            ElemMultLayer(
+                "ScalarFlow_Layer_%d" % layer_ind, D_Z, inits=inits[layer_ind - 1]
+            )
+        )
         layer_ind += 1
 
     for i in range(repeats):
-        layers.append(flow_class("%s%d" % (name_prefix, layer_ind), D_Z, inits=inits[layer_ind-1]))
+        layers.append(
+            flow_class(
+                "%s%d" % (name_prefix, layer_ind), D_Z, inits=inits[layer_ind - 1]
+            )
+        )
         layer_ind += 1
 
     return layers
@@ -485,17 +510,17 @@ def count_params(all_params):
 
 
 def log_grads(cost_grads, cost_grad_vals, ind):
-    cgv_ind = 0;
-    nparams = len(cost_grads);
+    cgv_ind = 0
+    nparams = len(cost_grads)
     for i in range(nparams):
-        grad = cost_grads[i];
-        grad_shape = grad.shape;
-        ngrad_vals = np.prod(grad_shape);
-        grad_reshape = np.reshape(grad, (ngrad_vals,));
+        grad = cost_grads[i]
+        grad_shape = grad.shape
+        ngrad_vals = np.prod(grad_shape)
+        grad_reshape = np.reshape(grad, (ngrad_vals,))
         for ii in range(ngrad_vals):
-            cost_grad_vals[ind, cgv_ind] = grad_reshape[ii];
-            cgv_ind += 1;
-    return None;
+            cost_grad_vals[ind, cgv_ind] = grad_reshape[ii]
+            cgv_ind += 1
+    return None
 
 
 def gradients(f, x, grad_ys=None):
@@ -544,6 +569,7 @@ def Lop(f, x, v):
     ), "f and v should be of the same type"
     return gradients(f, x, grad_ys=v)
 
+
 def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     T_x_shape = tf.shape(T_x_mu_centered)
     M = T_x_shape[1]
@@ -560,9 +586,10 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     grads = []
     nparams = len(all_params)
     for i in range(nparams):
-        grads.append(grad_func1[i] + c*grad_con[i]/tf.cast(half_M, DTYPE))
+        grads.append(grad_func1[i] + c * grad_con[i] / tf.cast(half_M, DTYPE))
 
     return cost, grads, H
+
 
 """def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     T_x_shape = tf.shape(T_x_mu_centered)
@@ -583,12 +610,14 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
 
     return cost, grads, H"""
 
+
 def load_nf_vars(initdir):
-    saver = tf.train.import_meta_graph(initdir + 'model.meta', import_scope='DSN');
-    W = tf.get_collection('W')[0];
-    phi = tf.get_collection('Z')[0];
-    log_q_phi = tf.get_collection('log_q_zs')[0];
-    return W, phi, log_q_phi, saver;
+    saver = tf.train.import_meta_graph(initdir + "model.meta", import_scope="DSN")
+    W = tf.get_collection("W")[0]
+    phi = tf.get_collection("Z")[0]
+    log_q_phi = tf.get_collection("log_q_zs")[0]
+    return W, phi, log_q_phi, saver
+
 
 def memory_extension(input_arrays, array_cur_len):
     """Extend numpy arrays tracking model diagnostics.
@@ -612,6 +641,7 @@ def memory_extension(input_arrays, array_cur_len):
         extended_arrays.append(extended_array)
     return extended_arrays
 
+
 def get_archstring(arch_dict):
     """Get string description of density network.
 
@@ -625,9 +655,9 @@ def get_archstring(arch_dict):
     latent_dynamics = arch_dict["latent_dynamics"]
     tif_flow_type = arch_dict["TIF_flow_type"]
     repeats = arch_dict["repeats"]
-    if arch_dict["mult_and_shift"] =='pre':
+    if arch_dict["mult_and_shift"] == "pre":
         tif_str = "M_A_%d%s" % (repeats, tif_flow_type[:1])
-    elif arch_dict["mult_and_shift"] =='post':
+    elif arch_dict["mult_and_shift"] == "post":
         tif_str = "%d%s_M_A" % (repeats, tif_flow_type[:1])
     else:
         tif_str = "%d%s" % (repeats, tif_flow_type[:1])

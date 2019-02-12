@@ -1,27 +1,32 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import approx_equal
-from tf_util.normalizing_flows import AffineFlow, \
-									  CholProdFlow, \
-                                      ElemMultFlow, \
-                                      ExpFlow, \
-                                      IntervalFlow, \
-									  PlanarFlow, \
-									  RadialFlow, \
-									  ShiftFlow, \
-									  SimplexBijectionFlow, \
-									  SoftPlusFlow, \
-									  StructuredSpinnerFlow, \
-									  StructuredSpinnerTanhFlow, \
-									  TanhFlow
+from tf_util.normalizing_flows import (
+    AffineFlow,
+    CholProdFlow,
+    ElemMultFlow,
+    ExpFlow,
+    IntervalFlow,
+    PlanarFlow,
+    RadialFlow,
+    ShiftFlow,
+    SimplexBijectionFlow,
+    SoftPlusFlow,
+    StructuredSpinnerFlow,
+    StructuredSpinnerTanhFlow,
+    TanhFlow,
+)
 
-from tf_util.normalizing_flows import get_num_flow_params, \
-									  get_flow_out_dim, \
-                                      get_flow_param_inits, \
-                                      get_flow_class
+from tf_util.normalizing_flows import (
+    get_num_flow_params,
+    get_flow_out_dim,
+    get_flow_param_inits,
+    get_flow_class,
+)
 
 import os
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 DTYPE = tf.float64
 EPS = 1e-10
@@ -30,7 +35,7 @@ EPS = 1e-10
 
 # Affine flows
 def affine_flow(z, params):
-	"""Affine flow operation and log abs det jac.
+    """Affine flow operation and log abs det jac.
 
 	z = Az + b
 	log_det_jac = log(|det(A)|)
@@ -44,24 +49,25 @@ def affine_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
 
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(AffineFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(AffineFlow, D)
 
-	A = np.reshape(params[:D**2], (D,D))
-	b = params[D**2:]
+    A = np.reshape(params[: D ** 2], (D, D))
+    b = params[D ** 2 :]
 
-	# compute output
-	out = np.dot(A, np.expand_dims(z, 1))[:,0] + b
+    # compute output
+    out = np.dot(A, np.expand_dims(z, 1))[:, 0] + b
 
-	# compute log abs det jacobian
-	log_det_jac = np.log(np.abs(np.linalg.det(A)))
+    # compute log abs det jacobian
+    log_det_jac = np.log(np.abs(np.linalg.det(A)))
 
-	return out, log_det_jac
+    return out, log_det_jac
+
 
 # Cholesky product flows
 def chol_prod_flow(z, params):
-	"""Cholesky product flow operation and log abs det jac.
+    """Cholesky product flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -74,17 +80,18 @@ def chol_prod_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(CholProdFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(CholProdFlow, D)
 
-	# I can't find the numpy implementation of the fill triangular method!!!
+    # I can't find the numpy implementation of the fill triangular method!!!
 
-	raise NotImplementedError()
+    raise NotImplementedError()
+
 
 # Elementwise multiplication flows
 def elem_mult_flow(z, params):
-	"""Elementwise multiplication flow operation and log abs det jac.
+    """Elementwise multiplication flow operation and log abs det jac.
 
 	z = a * z
     log_det_jac = \sum_i log(abs(a_i))
@@ -98,23 +105,24 @@ def elem_mult_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(ElemMultFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(ElemMultFlow, D)
 
-	a = params
+    a = params
 
-	# compute output
-	out = np.multiply(a, z)
+    # compute output
+    out = np.multiply(a, z)
 
-	# compute log abs det jacobian
-	log_det_jac = np.sum(np.log(np.abs(a)))
+    # compute log abs det jacobian
+    log_det_jac = np.sum(np.log(np.abs(a)))
 
-	return out, log_det_jac
+    return out, log_det_jac
+
 
 # Elementwise multiplication flows
 def exp_flow(z, params):
-	"""Exponential flow operation and log abs det jac.
+    """Exponential flow operation and log abs det jac.
 
 	z = exp(z)
     log_det_jac = \sum_i z_i
@@ -128,22 +136,22 @@ def exp_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(ExpFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(ExpFlow, D)
 
-	# compute output
-	out = np.exp(z)
+    # compute output
+    out = np.exp(z)
 
-	# compute log abs det jacobian
-	log_det_jac = np.sum(z)
+    # compute log abs det jacobian
+    log_det_jac = np.sum(z)
 
-	return out, log_det_jac
+    return out, log_det_jac
 
 
 # Interval flows
 def interval_flow(z, params, a, b):
-	"""Interval flow operation and log abs det jac.
+    """Interval flow operation and log abs det jac.
 
 	z = 
 
@@ -156,21 +164,22 @@ def interval_flow(z, params, a, b):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(IntervalFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(IntervalFlow, D)
 
-	m = (b - a) / 2.0
-	c = (a + b) / 2.0
+    m = (b - a) / 2.0
+    c = (a + b) / 2.0
 
-	out = m * np.tanh(z) + c
-	log_det_jac = np.sum(np.log(m) + np.log(1.0 - np.square(np.tanh(z))))
-	
-	return out, log_det_jac
+    out = m * np.tanh(z) + c
+    log_det_jac = np.sum(np.log(m) + np.log(1.0 - np.square(np.tanh(z))))
+
+    return out, log_det_jac
+
 
 # Planar flows
 def planar_flow(z, params):
-	"""Planar flow operation and log abs det jac.
+    """Planar flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -183,31 +192,32 @@ def planar_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(PlanarFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(PlanarFlow, D)
 
-	_u = params[:D]
-	w = params[D:(2*D)]
-	b = params[2*D]
+    _u = params[:D]
+    w = params[D : (2 * D)]
+    b = params[2 * D]
 
-	# enforce w^\topu >= -1
-	wdotu = np.dot(w, _u)
-	m_wdotu = -1.0 + np.log(1.0 + np.exp(wdotu))
-	u = _u + (m_wdotu - wdotu) * w / np.dot(w,w)
+    # enforce w^\topu >= -1
+    wdotu = np.dot(w, _u)
+    m_wdotu = -1.0 + np.log(1.0 + np.exp(wdotu))
+    u = _u + (m_wdotu - wdotu) * w / np.dot(w, w)
 
-	# compute output
-	out = z + u*np.tanh(np.dot(w, z) + b)
+    # compute output
+    out = z + u * np.tanh(np.dot(w, z) + b)
 
-	# compute log det jacobian
-	phi = (1.0 - np.square(np.tanh(np.dot(w, z) + b))) * w
-	log_det_jac = np.log(np.abs(1.0 + np.dot(u, phi)))
+    # compute log det jacobian
+    phi = (1.0 - np.square(np.tanh(np.dot(w, z) + b))) * w
+    log_det_jac = np.log(np.abs(1.0 + np.dot(u, phi)))
 
-	return out, log_det_jac
+    return out, log_det_jac
+
 
 # Radial flows
 def radial_flow(z, params):
-	"""Radial flow operation and log abs det jac.
+    """Radial flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -220,30 +230,33 @@ def radial_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(RadialFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(RadialFlow, D)
 
-	alpha = params[0]
-	_beta = params[1]
-	z0 = params[2:]
+    alpha = params[0]
+    _beta = params[1]
+    z0 = params[2:]
 
-	# enforce invertibility
-	m_beta = np.log(1.0 + np.exp(_beta))
-	beta = -alpha + m_beta
+    # enforce invertibility
+    m_beta = np.log(1.0 + np.exp(_beta))
+    beta = -alpha + m_beta
 
-	r = np.linalg.norm(z)
-	h = 1.0 / (alpha + r)
-	hprime = -1.0 / np.square(alpha + r)
+    r = np.linalg.norm(z)
+    h = 1.0 / (alpha + r)
+    hprime = -1.0 / np.square(alpha + r)
 
-	out = z + beta*h*(z - z0)
-	log_det_jac = (D-1.0)*np.log(1.0 + beta*h) + np.log(1.0 + beta*h + beta*hprime*r)
+    out = z + beta * h * (z - z0)
+    log_det_jac = (D - 1.0) * np.log(1.0 + beta * h) + np.log(
+        1.0 + beta * h + beta * hprime * r
+    )
 
-	return out, log_det_jac
+    return out, log_det_jac
+
 
 # Shift flows
 def shift_flow(z, params):
-	"""Shift flow operation and log abs det jac.
+    """Shift flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -256,22 +269,23 @@ def shift_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(ShiftFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(ShiftFlow, D)
 
-	b = params
+    b = params
 
-	# compute output
-	out = z + b
+    # compute output
+    out = z + b
 
-	# compute the log abs det jacobian
-	log_det_jac = 0.0
-	return out, log_det_jac
+    # compute the log abs det jacobian
+    log_det_jac = 0.0
+    return out, log_det_jac
+
 
 # Simplex bijection flows
 def simplex_bijection_flow(z, params):
-	"""Simplex bijection flow operation and log abs det jac.
+    """Simplex bijection flow operation and log abs det jac.
 
 	out = (e^z1 / (sum i e^zi + 1), .., e^z_d-1 / (sum i e^zi + 1), 1 / (sum i e^zi + 1))
 	log_det_jac = log(1 - (sum i e^zi / (sum i e^zi+1)) - D log(sum i e^zi + 1) + sum i zi
@@ -285,22 +299,25 @@ def simplex_bijection_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(SimplexBijectionFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(SimplexBijectionFlow, D)
 
-	exp_z = np.exp(z)
-	den = np.sum(exp_z) + 1
+    exp_z = np.exp(z)
+    den = np.sum(exp_z) + 1
 
-	out = np.concatenate((exp_z / den, np.array([1.0 / den])), axis=0)
+    out = np.concatenate((exp_z / den, np.array([1.0 / den])), axis=0)
 
-	log_det_jac = np.log(1 - (np.sum(exp_z)/den)) - D*np.log(np.sum(exp_z) + 1) + np.sum(z)
+    log_det_jac = (
+        np.log(1 - (np.sum(exp_z) / den)) - D * np.log(np.sum(exp_z) + 1) + np.sum(z)
+    )
 
-	return out, log_det_jac
+    return out, log_det_jac
+
 
 # Softplus flows
 def softplus_flow(z, params):
-	"""Softplus flow operation and log abs det jac.
+    """Softplus flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -313,23 +330,23 @@ def softplus_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(SoftPlusFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(SoftPlusFlow, D)
 
-	# compute output
-	out = np.log(1.0 + np.exp(z))
+    # compute output
+    out = np.log(1.0 + np.exp(z))
 
-	# compute log abs det jacobian
-	jac_diag = np.exp(z) / (1.0 + np.exp(z))
-	log_det_jac = np.sum(np.log(np.abs(jac_diag)))
+    # compute log abs det jacobian
+    jac_diag = np.exp(z) / (1.0 + np.exp(z))
+    log_det_jac = np.sum(np.log(np.abs(jac_diag)))
 
-	return out, log_det_jac
+    return out, log_det_jac
 
 
 # Structured spinner flows
 def structured_spinner_flow(z, params):
-	"""Structured spinner flow operation and log abs det jac.
+    """Structured spinner flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -342,15 +359,16 @@ def structured_spinner_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(StructuredSpinnerFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(StructuredSpinnerFlow, D)
 
-	raise NotImplementedError()
+    raise NotImplementedError()
+
 
 # Structured spinner tanh flows
 def structured_spinner_tanh_flow(z, params):
-	"""Structured spinner tanh flow operation and log abs det jac.
+    """Structured spinner tanh flow operation and log abs det jac.
 
 	[Insert tex of operation]
 
@@ -363,15 +381,16 @@ def structured_spinner_tanh_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(StructuredSpinnerTanhFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(StructuredSpinnerTanhFlow, D)
 
-	raise NotImplementedError()
+    raise NotImplementedError()
+
 
 # Tanh flows
 def tanh_flow(z, params):
-	"""Tanh flow operation and log abs det jac.
+    """Tanh flow operation and log abs det jac.
 
 	z = tanh(z)
     log_det_jac = sum_i log(abs(1 - sec^2(z_i)))
@@ -385,141 +404,141 @@ def tanh_flow(z, params):
         log_det_jacobian (np.float): Log abs det jac.
         
 	"""
-	D = z.shape[0]
-	num_params = params.shape[0]
-	assert(num_params == get_num_flow_params(TanhFlow, D))
+    D = z.shape[0]
+    num_params = params.shape[0]
+    assert num_params == get_num_flow_params(TanhFlow, D)
 
-	out = np.tanh(z)
-	log_det_jac = np.sum(np.log(1 - np.square(np.tanh(z))))
+    out = np.tanh(z)
+    log_det_jac = np.sum(np.log(1 - np.square(np.tanh(z))))
 
-	return out, log_det_jac
-
+    return out, log_det_jac
 
 
 def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
-	num_params = get_num_flow_params(flow_class, dim)
-	out_dim = get_flow_out_dim(flow_class, dim)
+    num_params = get_num_flow_params(flow_class, dim)
+    out_dim = get_flow_out_dim(flow_class, dim)
 
-	params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
-	inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
+    params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
+    inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
 
-	flow1 = flow_class(params1, inputs1)
-	out1, log_det_jac1 = flow1.forward_and_jacobian()
+    flow1 = flow_class(params1, inputs1)
+    out1, log_det_jac1 = flow1.forward_and_jacobian()
 
-	_params = np.random.normal(0.0, 1.0, (K,num_params))
-	_inputs = np.random.normal(0.0, 1.0, (K,n,dim))
+    _params = np.random.normal(0.0, 1.0, (K, num_params))
+    _inputs = np.random.normal(0.0, 1.0, (K, n, dim))
 
-	if (flow1.name == 'RadialFlow'):
-		_params[:,0] = np.abs(_params[:,0]) + .001
+    if flow1.name == "RadialFlow":
+        _params[:, 0] = np.abs(_params[:, 0]) + 0.001
 
-	# compute ground truth
-	out_true = np.zeros((K,n,out_dim))
-	log_det_jac_true = np.zeros((K,n))
-	for k in range(K):
-		_params_k = _params[k,:]
-		for j in range(n):
-			out_true[k,j,:], log_det_jac_true[k,j] = true_flow(_inputs[k,j,:], _params_k)
+        # compute ground truth
+    out_true = np.zeros((K, n, out_dim))
+    log_det_jac_true = np.zeros((K, n))
+    for k in range(K):
+        _params_k = _params[k, :]
+        for j in range(n):
+            out_true[k, j, :], log_det_jac_true[k, j] = true_flow(
+                _inputs[k, j, :], _params_k
+            )
 
-	feed_dict = {params1:_params, inputs1:_inputs}
-	with tf.Session() as sess:
-		_out1, _log_det_jac1 = sess.run([out1, log_det_jac1], feed_dict)
+    feed_dict = {params1: _params, inputs1: _inputs}
+    with tf.Session() as sess:
+        _out1, _log_det_jac1 = sess.run([out1, log_det_jac1], feed_dict)
 
-		if (flow1.name == 'PlanarFlow'):
-			wdotus = tf.matmul(tf.expand_dims(flow1.w, 1), tf.expand_dims(flow1.u, 2))
-			_wdotus = sess.run(wdotus, feed_dict)
+        if flow1.name == "PlanarFlow":
+            wdotus = tf.matmul(tf.expand_dims(flow1.w, 1), tf.expand_dims(flow1.u, 2))
+            _wdotus = sess.run(wdotus, feed_dict)
 
-		if (flow1.name == 'RadialFlow'):
-			alpha, beta = sess.run([flow1.alpha, flow1.beta], feed_dict)
+        if flow1.name == "RadialFlow":
+            alpha, beta = sess.run([flow1.alpha, flow1.beta], feed_dict)
 
-	assert(approx_equal(_out1, out_true, EPS))
-	assert(approx_equal(_log_det_jac1, log_det_jac_true, EPS))
+    assert approx_equal(_out1, out_true, EPS)
+    assert approx_equal(_log_det_jac1, log_det_jac_true, EPS)
 
-	# Ensure invertibility
-	if (flow1.name == 'PlanarFlow'):
-		num_inv_viols = np.sum(_wdotus < -(1+EPS))
-		assert(num_inv_viols == 0)
+    # Ensure invertibility
+    if flow1.name == "PlanarFlow":
+        num_inv_viols = np.sum(_wdotus < -(1 + EPS))
+        assert num_inv_viols == 0
 
-	elif (flow1.name == 'RadialFlow'):
-		for k in range(K):
-			assert(-alpha[k,0] <= beta[k,0])
+    elif flow1.name == "RadialFlow":
+        for k in range(K):
+            assert -alpha[k, 0] <= beta[k, 0]
 
-
-	return None
+    return None
 
 
 def eval_interval_flow_at_dim(dim, K, n):
-	num_params = get_num_flow_params(IntervalFlow, dim)
-	out_dim = get_flow_out_dim(IntervalFlow, dim)
+    num_params = get_num_flow_params(IntervalFlow, dim)
+    out_dim = get_flow_out_dim(IntervalFlow, dim)
 
-	params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
-	inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
+    params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
+    inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
 
-	_params = np.random.normal(0.0, 1.0, (K,num_params))
-	_inputs = np.random.normal(0.0, 1.0, (K,n,dim))
+    _params = np.random.normal(0.0, 1.0, (K, num_params))
+    _inputs = np.random.normal(0.0, 1.0, (K, n, dim))
 
-	_a = np.random.normal(0.0, 1.0, (K, dim))
-	_b = _a + np.abs(np.random.normal(0.0, 1.0, (K, dim))) + .001
+    _a = np.random.normal(0.0, 1.0, (K, dim))
+    _b = _a + np.abs(np.random.normal(0.0, 1.0, (K, dim))) + 0.001
 
-	# compute ground truth
-	out_true = np.zeros((K,n,out_dim))
-	log_det_jac_true = np.zeros((K,n))
-	for k in range(K):
-		_params_k = _params[k,:]
-		_a_k = _a[k,:]
-		_b_k = _b[k,:]
-		for j in range(n):
-			out_true[k,j,:], log_det_jac_true[k,j] = interval_flow(_inputs[k,j,:], _params_k, _a_k, _b_k)
+    # compute ground truth
+    out_true = np.zeros((K, n, out_dim))
+    log_det_jac_true = np.zeros((K, n))
+    for k in range(K):
+        _params_k = _params[k, :]
+        _a_k = _a[k, :]
+        _b_k = _b[k, :]
+        for j in range(n):
+            out_true[k, j, :], log_det_jac_true[k, j] = interval_flow(
+                _inputs[k, j, :], _params_k, _a_k, _b_k
+            )
 
+    _out1 = np.zeros((K, n, out_dim))
+    _log_det_jac1 = np.zeros((K, n))
+    with tf.Session() as sess:
+        for k in range(K):
+            _a_k = _a[k, :]
+            _b_k = _b[k, :]
+            flow1 = IntervalFlow(params1, inputs1, _a_k, _b_k)
+            out1, log_det_jac1 = flow1.forward_and_jacobian()
+            _params_k = np.expand_dims(_params[k, :], 0)
+            _inputs_k = np.expand_dims(_inputs[k, :, :], 0)
+            feed_dict = {params1: _params_k, inputs1: _inputs_k}
+            _out1_k, _log_det_jac1_k = sess.run([out1, log_det_jac1], feed_dict)
+            _out1[k, :, :] = _out1_k[0]
+            _log_det_jac1[k, :] = _log_det_jac1_k[0]
 
-	_out1 = np.zeros((K, n, out_dim))
-	_log_det_jac1 = np.zeros((K, n))
-	with tf.Session() as sess:
-		for k in range(K):
-			_a_k = _a[k,:]
-			_b_k = _b[k,:]
-			flow1 = IntervalFlow(params1, inputs1, _a_k, _b_k)
-			out1, log_det_jac1 = flow1.forward_and_jacobian()
-			_params_k = np.expand_dims(_params[k,:], 0)
-			_inputs_k = np.expand_dims(_inputs[k,:,:], 0)
-			feed_dict = {params1:_params_k, inputs1:_inputs_k}
-			_out1_k, _log_det_jac1_k = sess.run([out1, log_det_jac1], feed_dict)
-			_out1[k,:,:] = _out1_k[0]
-			_log_det_jac1[k,:] = _log_det_jac1_k[0]
-
-	assert(approx_equal(_out1, out_true, EPS))
-	assert(approx_equal(_log_det_jac1, log_det_jac_true, EPS))
-	return None
+    assert approx_equal(_out1, out_true, EPS)
+    assert approx_equal(_log_det_jac1, log_det_jac_true, EPS)
+    return None
 
 
 def test_get_flow_class():
-	assert(get_flow_class('AffineFlow') == AffineFlow)
-	assert(get_flow_class('CholProdFlow') == CholProdFlow)
-	assert(get_flow_class('ElemMultFlow') == ElemMultFlow)
-	assert(get_flow_class('ExpFlow') == ExpFlow)
-	assert(get_flow_class('IntervalFlow') == IntervalFlow)
-	assert(get_flow_class('PlanarFlow') == PlanarFlow)
-	assert(get_flow_class('RadialFlow') == RadialFlow)
-	assert(get_flow_class('ShiftFlow') == ShiftFlow)
-	assert(get_flow_class('SimplexBijectionFlow') == SimplexBijectionFlow)
-	assert(get_flow_class('SoftPlusFlow') == SoftPlusFlow)
-	assert(get_flow_class('StructuredSpinnerFlow') == StructuredSpinnerFlow)
-	assert(get_flow_class('StructuredSpinnerTanhFlow') == StructuredSpinnerTanhFlow)
-	assert(get_flow_class('TanhFlow') == TanhFlow)
-	
+    assert get_flow_class("AffineFlow") == AffineFlow
+    assert get_flow_class("CholProdFlow") == CholProdFlow
+    assert get_flow_class("ElemMultFlow") == ElemMultFlow
+    assert get_flow_class("ExpFlow") == ExpFlow
+    assert get_flow_class("IntervalFlow") == IntervalFlow
+    assert get_flow_class("PlanarFlow") == PlanarFlow
+    assert get_flow_class("RadialFlow") == RadialFlow
+    assert get_flow_class("ShiftFlow") == ShiftFlow
+    assert get_flow_class("SimplexBijectionFlow") == SimplexBijectionFlow
+    assert get_flow_class("SoftPlusFlow") == SoftPlusFlow
+    assert get_flow_class("StructuredSpinnerFlow") == StructuredSpinnerFlow
+    assert get_flow_class("StructuredSpinnerTanhFlow") == StructuredSpinnerTanhFlow
+    assert get_flow_class("TanhFlow") == TanhFlow
 
-	print('Get flow class passed.')
-	return None
+    print("Get flow class passed.")
+    return None
 
 
 def test_get_num_flow_params():
-	assert(get_num_flow_params(AffineFlow, 1) == 2)
-	assert(get_num_flow_params(AffineFlow, 2) == 6)
-	assert(get_num_flow_params(AffineFlow, 4) == 20)
-	assert(get_num_flow_params(AffineFlow, 20) == 420)
-	assert(get_num_flow_params(AffineFlow, 100) == 10100)
-	assert(get_num_flow_params(AffineFlow, 1000) == 1001000)
+    assert get_num_flow_params(AffineFlow, 1) == 2
+    assert get_num_flow_params(AffineFlow, 2) == 6
+    assert get_num_flow_params(AffineFlow, 4) == 20
+    assert get_num_flow_params(AffineFlow, 20) == 420
+    assert get_num_flow_params(AffineFlow, 100) == 10100
+    assert get_num_flow_params(AffineFlow, 1000) == 1001000
 
-	"""
+    """
 	assert(get_num_flow_params(CholProdFlow, 1) == 0)
 	assert(get_num_flow_params(CholProdFlow, 2) == 0)
 	assert(get_num_flow_params(CholProdFlow, 4) == 0)
@@ -528,56 +547,56 @@ def test_get_num_flow_params():
 	assert(get_num_flow_params(CholProdFlow, 1000) == 0)
 	"""
 
-	assert(get_num_flow_params(ElemMultFlow, 1) == 1)
-	assert(get_num_flow_params(ElemMultFlow, 2) == 2)
-	assert(get_num_flow_params(ElemMultFlow, 4) == 4)
-	assert(get_num_flow_params(ElemMultFlow, 20) == 20)
-	assert(get_num_flow_params(ElemMultFlow, 100) == 100)
-	assert(get_num_flow_params(ElemMultFlow, 1000) == 1000)
+    assert get_num_flow_params(ElemMultFlow, 1) == 1
+    assert get_num_flow_params(ElemMultFlow, 2) == 2
+    assert get_num_flow_params(ElemMultFlow, 4) == 4
+    assert get_num_flow_params(ElemMultFlow, 20) == 20
+    assert get_num_flow_params(ElemMultFlow, 100) == 100
+    assert get_num_flow_params(ElemMultFlow, 1000) == 1000
 
-	assert(get_num_flow_params(IntervalFlow, 1) == 2)
-	assert(get_num_flow_params(IntervalFlow, 2) == 2)
-	assert(get_num_flow_params(IntervalFlow, 4) == 2)
-	assert(get_num_flow_params(IntervalFlow, 20) == 2)
-	assert(get_num_flow_params(IntervalFlow, 100) == 2)
-	assert(get_num_flow_params(IntervalFlow, 1000) == 2)
+    assert get_num_flow_params(IntervalFlow, 1) == 2
+    assert get_num_flow_params(IntervalFlow, 2) == 2
+    assert get_num_flow_params(IntervalFlow, 4) == 2
+    assert get_num_flow_params(IntervalFlow, 20) == 2
+    assert get_num_flow_params(IntervalFlow, 100) == 2
+    assert get_num_flow_params(IntervalFlow, 1000) == 2
 
-	assert(get_num_flow_params(PlanarFlow, 1) == 3)
-	assert(get_num_flow_params(PlanarFlow, 2) == 5)
-	assert(get_num_flow_params(PlanarFlow, 4) == 9)
-	assert(get_num_flow_params(PlanarFlow, 20) == 41)
-	assert(get_num_flow_params(PlanarFlow, 100) == 201)
-	assert(get_num_flow_params(PlanarFlow, 1000) == 2001)
+    assert get_num_flow_params(PlanarFlow, 1) == 3
+    assert get_num_flow_params(PlanarFlow, 2) == 5
+    assert get_num_flow_params(PlanarFlow, 4) == 9
+    assert get_num_flow_params(PlanarFlow, 20) == 41
+    assert get_num_flow_params(PlanarFlow, 100) == 201
+    assert get_num_flow_params(PlanarFlow, 1000) == 2001
 
-	assert(get_num_flow_params(RadialFlow, 1) == 3)
-	assert(get_num_flow_params(RadialFlow, 2) == 4)
-	assert(get_num_flow_params(RadialFlow, 4) == 6)
-	assert(get_num_flow_params(RadialFlow, 20) == 22)
-	assert(get_num_flow_params(RadialFlow, 100) == 102)
-	assert(get_num_flow_params(RadialFlow, 1000) == 1002)
+    assert get_num_flow_params(RadialFlow, 1) == 3
+    assert get_num_flow_params(RadialFlow, 2) == 4
+    assert get_num_flow_params(RadialFlow, 4) == 6
+    assert get_num_flow_params(RadialFlow, 20) == 22
+    assert get_num_flow_params(RadialFlow, 100) == 102
+    assert get_num_flow_params(RadialFlow, 1000) == 1002
 
-	assert(get_num_flow_params(ShiftFlow, 1) == 1)
-	assert(get_num_flow_params(ShiftFlow, 2) == 2)
-	assert(get_num_flow_params(ShiftFlow, 4) == 4)
-	assert(get_num_flow_params(ShiftFlow, 20) == 20)
-	assert(get_num_flow_params(ShiftFlow, 100) == 100)
-	assert(get_num_flow_params(ShiftFlow, 1000) == 1000)
+    assert get_num_flow_params(ShiftFlow, 1) == 1
+    assert get_num_flow_params(ShiftFlow, 2) == 2
+    assert get_num_flow_params(ShiftFlow, 4) == 4
+    assert get_num_flow_params(ShiftFlow, 20) == 20
+    assert get_num_flow_params(ShiftFlow, 100) == 100
+    assert get_num_flow_params(ShiftFlow, 1000) == 1000
 
-	assert(get_num_flow_params(SimplexBijectionFlow, 1) == 0)
-	assert(get_num_flow_params(SimplexBijectionFlow, 2) == 0)
-	assert(get_num_flow_params(SimplexBijectionFlow, 4) == 0)
-	assert(get_num_flow_params(SimplexBijectionFlow, 20) == 0)
-	assert(get_num_flow_params(SimplexBijectionFlow, 100) == 0)
-	assert(get_num_flow_params(SimplexBijectionFlow, 1000) == 0)
+    assert get_num_flow_params(SimplexBijectionFlow, 1) == 0
+    assert get_num_flow_params(SimplexBijectionFlow, 2) == 0
+    assert get_num_flow_params(SimplexBijectionFlow, 4) == 0
+    assert get_num_flow_params(SimplexBijectionFlow, 20) == 0
+    assert get_num_flow_params(SimplexBijectionFlow, 100) == 0
+    assert get_num_flow_params(SimplexBijectionFlow, 1000) == 0
 
-	assert(get_num_flow_params(SoftPlusFlow, 1) == 0)
-	assert(get_num_flow_params(SoftPlusFlow, 2) == 0)
-	assert(get_num_flow_params(SoftPlusFlow, 4) == 0)
-	assert(get_num_flow_params(SoftPlusFlow, 20) == 0)
-	assert(get_num_flow_params(SoftPlusFlow, 100) == 0)
-	assert(get_num_flow_params(SoftPlusFlow, 1000) == 0)
+    assert get_num_flow_params(SoftPlusFlow, 1) == 0
+    assert get_num_flow_params(SoftPlusFlow, 2) == 0
+    assert get_num_flow_params(SoftPlusFlow, 4) == 0
+    assert get_num_flow_params(SoftPlusFlow, 20) == 0
+    assert get_num_flow_params(SoftPlusFlow, 100) == 0
+    assert get_num_flow_params(SoftPlusFlow, 1000) == 0
 
-	"""
+    """
 	assert(get_num_flow_params(StructuredSpinnerFlow, 1) == 0)
 	assert(get_num_flow_params(StructuredSpinnerFlow, 2) == 0)
 	assert(get_num_flow_params(StructuredSpinnerFlow, 4) == 0)
@@ -586,7 +605,7 @@ def test_get_num_flow_params():
 	assert(get_num_flow_params(StructuredSpinnerFlow, 1000) == 0)
 	"""
 
-	"""
+    """
 	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 1) == 0)
 	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 2) == 0)
 	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 4) == 0)
@@ -595,76 +614,77 @@ def test_get_num_flow_params():
 	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 1000) == 0)
 	"""
 
-	assert(get_num_flow_params(TanhFlow, 1) == 0)
-	assert(get_num_flow_params(TanhFlow, 2) == 0)
-	assert(get_num_flow_params(TanhFlow, 4) == 0)
-	assert(get_num_flow_params(TanhFlow, 20) == 0)
-	assert(get_num_flow_params(TanhFlow, 100) == 0)
-	assert(get_num_flow_params(TanhFlow, 1000) == 0)
+    assert get_num_flow_params(TanhFlow, 1) == 0
+    assert get_num_flow_params(TanhFlow, 2) == 0
+    assert get_num_flow_params(TanhFlow, 4) == 0
+    assert get_num_flow_params(TanhFlow, 20) == 0
+    assert get_num_flow_params(TanhFlow, 100) == 0
+    assert get_num_flow_params(TanhFlow, 1000) == 0
 
-	print('Get number of flow parameters passed.')
-	return None
+    print("Get number of flow parameters passed.")
+    return None
 
 
 def test_flow_param_initialization():
-	Ds = [1,2,4,20,100,1000]
-	all_glorot_uniform_flows = [AffineFlow, ElemMultFlow, ShiftFlow]
-	all_no_param_flows = [ExpFlow, SimplexBijectionFlow, SoftPlusFlow, TanhFlow]
-	with tf.Session() as sess:
-		for D in Ds:
-			for flow in all_glorot_uniform_flows:
-				inits, dims = get_flow_param_inits(flow, D)
-				assert(len(inits)==1)
-				#assert(isinstance(inits[0], tf.glorot_uniform_initializer))
-				assert(sum(dims) == get_num_flow_params(flow, D))
+    Ds = [1, 2, 4, 20, 100, 1000]
+    all_glorot_uniform_flows = [AffineFlow, ElemMultFlow, ShiftFlow]
+    all_no_param_flows = [ExpFlow, SimplexBijectionFlow, SoftPlusFlow, TanhFlow]
+    with tf.Session() as sess:
+        for D in Ds:
+            for flow in all_glorot_uniform_flows:
+                inits, dims = get_flow_param_inits(flow, D)
+                assert len(inits) == 1
+                # assert(isinstance(inits[0], tf.glorot_uniform_initializer))
+                assert sum(dims) == get_num_flow_params(flow, D)
 
-			for flow in all_no_param_flows:
-				inits, dims = get_flow_param_inits(flow, D)
-				assert(len(inits) == 1)
-				assert(inits[0] == None)
-				assert(len(dims) == 1)
-				assert(dims[0] == 0)
+            for flow in all_no_param_flows:
+                inits, dims = get_flow_param_inits(flow, D)
+                assert len(inits) == 1
+                assert inits[0] == None
+                assert len(dims) == 1
+                assert dims[0] == 0
 
-			"""
+            """
 			inits, dims = get_flow_param_inits(CholProdFlow, D)
 			"""
 
-			inits, dims = get_flow_param_inits(PlanarFlow, D)
-			assert(approx_equal(sess.run(inits[0]), np.zeros(D), EPS))
-			#assert(isinstance(inits[1], tf.glorot_uniform_initializer))
-			assert(approx_equal(sess.run(inits[2]), 0.0, EPS))
-			assert(dims == [D, D, 1])
+            inits, dims = get_flow_param_inits(PlanarFlow, D)
+            assert approx_equal(sess.run(inits[0]), np.zeros(D), EPS)
+            # assert(isinstance(inits[1], tf.glorot_uniform_initializer))
+            assert approx_equal(sess.run(inits[2]), 0.0, EPS)
+            assert dims == [D, D, 1]
 
-			"""
+            """
 			inits, dims = get_flow_param_inits(RadialFlow, D)
 			"""
 
-			"""
+            """
 			inits, dims = get_flow_param_inits(StructuredSpinnerFlow, D)
 			"""
 
-			"""
+            """
 			inits, dims = get_flow_param_inits(StructuredSpinnerTanhFlow, D)
 			"""
 
-	print('Flow initializations passed.')
-	return None
+    print("Flow initializations passed.")
+    return None
 
 
 def test_affine_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(AffineFlow, affine_flow, 1, K, n)
-	eval_flow_at_dim(AffineFlow, affine_flow, 2, K, n)
-	eval_flow_at_dim(AffineFlow, affine_flow, 4, K, n)
-	eval_flow_at_dim(AffineFlow, affine_flow, 20, K, n)
-	eval_flow_at_dim(AffineFlow, affine_flow, 100, K, n)
-	eval_flow_at_dim(AffineFlow, affine_flow, 300, K, n)
-	print('Affine flows passed.')
-	return None
+    eval_flow_at_dim(AffineFlow, affine_flow, 1, K, n)
+    eval_flow_at_dim(AffineFlow, affine_flow, 2, K, n)
+    eval_flow_at_dim(AffineFlow, affine_flow, 4, K, n)
+    eval_flow_at_dim(AffineFlow, affine_flow, 20, K, n)
+    eval_flow_at_dim(AffineFlow, affine_flow, 100, K, n)
+    eval_flow_at_dim(AffineFlow, affine_flow, 300, K, n)
+    print("Affine flows passed.")
+    return None
+
 
 """
 def test_chol_prod_flows():
@@ -685,125 +705,133 @@ def test_chol_prod_flows():
 
 
 def test_elem_mult_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 1, K, n)
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 2, K, n)
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 4, K, n)
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 20, K, n)
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 100, K, n)
-	eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 1000, K, n)
-	print('Elementwise multiplication flows passed.')
-	return None
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 1, K, n)
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 2, K, n)
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 4, K, n)
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 20, K, n)
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 100, K, n)
+    eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 1000, K, n)
+    print("Elementwise multiplication flows passed.")
+    return None
+
 
 def test_exp_flows():
-	# num parameterizations
-	K = 1
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 1
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(ExpFlow, exp_flow, 1, K, n)
-	eval_flow_at_dim(ExpFlow, exp_flow, 2, K, n)
-	eval_flow_at_dim(ExpFlow, exp_flow, 4, K, n)
-	eval_flow_at_dim(ExpFlow, exp_flow, 20, K, n)
-	eval_flow_at_dim(ExpFlow, exp_flow, 100, K, n)
-	eval_flow_at_dim(ExpFlow, exp_flow, 1000, K, n)
-	print('Exp flows passed.')
-	return None
+    eval_flow_at_dim(ExpFlow, exp_flow, 1, K, n)
+    eval_flow_at_dim(ExpFlow, exp_flow, 2, K, n)
+    eval_flow_at_dim(ExpFlow, exp_flow, 4, K, n)
+    eval_flow_at_dim(ExpFlow, exp_flow, 20, K, n)
+    eval_flow_at_dim(ExpFlow, exp_flow, 100, K, n)
+    eval_flow_at_dim(ExpFlow, exp_flow, 1000, K, n)
+    print("Exp flows passed.")
+    return None
+
 
 def test_interval_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_interval_flow_at_dim(1, K, n)
-	eval_interval_flow_at_dim(2, K, n)
-	eval_interval_flow_at_dim(4, K, n)
-	eval_interval_flow_at_dim(20, K, n)
-	eval_interval_flow_at_dim(100, K, n)
-	eval_interval_flow_at_dim(1000, K, n)
-	print('Interval flows passed.')
-	return None
+    eval_interval_flow_at_dim(1, K, n)
+    eval_interval_flow_at_dim(2, K, n)
+    eval_interval_flow_at_dim(4, K, n)
+    eval_interval_flow_at_dim(20, K, n)
+    eval_interval_flow_at_dim(100, K, n)
+    eval_interval_flow_at_dim(1000, K, n)
+    print("Interval flows passed.")
+    return None
+
 
 def test_planar_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	np.random.seed(0)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 1, K, n)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 2, K, n)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 4, K, n)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 20, K, n)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 100, K, n)
-	eval_flow_at_dim(PlanarFlow, planar_flow, 1000, K, n)
-	print('Planar flows passed.')
-	return None
+    np.random.seed(0)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 1, K, n)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 2, K, n)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 4, K, n)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 20, K, n)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 100, K, n)
+    eval_flow_at_dim(PlanarFlow, planar_flow, 1000, K, n)
+    print("Planar flows passed.")
+    return None
+
 
 def test_radial_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(RadialFlow, radial_flow, 1, K, n)
-	eval_flow_at_dim(RadialFlow, radial_flow, 2, K, n)
-	eval_flow_at_dim(RadialFlow, radial_flow, 4, K, n)
-	eval_flow_at_dim(RadialFlow, radial_flow, 20, K, n)
-	eval_flow_at_dim(RadialFlow, radial_flow, 100, K, n)
-	eval_flow_at_dim(RadialFlow, radial_flow, 1000, K, n)
-	print('Radial flows passed.')
-	return None
+    eval_flow_at_dim(RadialFlow, radial_flow, 1, K, n)
+    eval_flow_at_dim(RadialFlow, radial_flow, 2, K, n)
+    eval_flow_at_dim(RadialFlow, radial_flow, 4, K, n)
+    eval_flow_at_dim(RadialFlow, radial_flow, 20, K, n)
+    eval_flow_at_dim(RadialFlow, radial_flow, 100, K, n)
+    eval_flow_at_dim(RadialFlow, radial_flow, 1000, K, n)
+    print("Radial flows passed.")
+    return None
+
 
 def test_shift_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(ShiftFlow, shift_flow, 1, K, n)
-	eval_flow_at_dim(ShiftFlow, shift_flow, 2, K, n)
-	eval_flow_at_dim(ShiftFlow, shift_flow, 4, K, n)
-	eval_flow_at_dim(ShiftFlow, shift_flow, 20, K, n)
-	eval_flow_at_dim(ShiftFlow, shift_flow, 100, K, n)
-	eval_flow_at_dim(ShiftFlow, shift_flow, 1000, K, n)
-	print('Shift flows passed.')
-	return None
+    eval_flow_at_dim(ShiftFlow, shift_flow, 1, K, n)
+    eval_flow_at_dim(ShiftFlow, shift_flow, 2, K, n)
+    eval_flow_at_dim(ShiftFlow, shift_flow, 4, K, n)
+    eval_flow_at_dim(ShiftFlow, shift_flow, 20, K, n)
+    eval_flow_at_dim(ShiftFlow, shift_flow, 100, K, n)
+    eval_flow_at_dim(ShiftFlow, shift_flow, 1000, K, n)
+    print("Shift flows passed.")
+    return None
+
 
 def test_simplex_bijection_flows():
-	# num parameterizations
-	K = 1
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 1
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 1, K, n)
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 2, K, n)
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 4, K, n)
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 20, K, n)
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 100, K, n)
-	eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 1000, K, n)
-	print('Simplex bijection flows passed.')
-	return None
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 1, K, n)
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 2, K, n)
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 4, K, n)
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 20, K, n)
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 100, K, n)
+    eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 1000, K, n)
+    print("Simplex bijection flows passed.")
+    return None
+
 
 def test_softplus_flows():
-	# num parameterizations
-	K = 1
-	# number of inputs tested per parameterization
-	n = 100
+    # num parameterizations
+    K = 1
+    # number of inputs tested per parameterization
+    n = 100
 
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1, K, n)
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 2, K, n)
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 4, K, n)
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 20, K, n)
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 100, K, n)
-	eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1000, K, n)
-	print('SoftPlus flows passed.')
-	return None
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1, K, n)
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 2, K, n)
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 4, K, n)
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 20, K, n)
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 100, K, n)
+    eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1000, K, n)
+    print("SoftPlus flows passed.")
+    return None
+
 
 """
 def test_structured_spinner_flows():
@@ -839,36 +867,36 @@ def test_structured_spinner_tanh_flows():
 	return None
 """
 
-def test_tanh_flows():
-	# num parameterizations
-	K = 1
-	# number of inputs tested per parameterization
-	n = 100
 
-	eval_flow_at_dim(TanhFlow, tanh_flow, 1, K, n)
-	eval_flow_at_dim(TanhFlow, tanh_flow, 2, K, n)
-	eval_flow_at_dim(TanhFlow, tanh_flow, 4, K, n)
-	eval_flow_at_dim(TanhFlow, tanh_flow, 20, K, n)
-	eval_flow_at_dim(TanhFlow, tanh_flow, 100, K, n)
-	eval_flow_at_dim(TanhFlow, tanh_flow, 1000, K, n)
-	print('Tanh flows passed.')
-	return None
+def test_tanh_flows():
+    # num parameterizations
+    K = 1
+    # number of inputs tested per parameterization
+    n = 100
+
+    eval_flow_at_dim(TanhFlow, tanh_flow, 1, K, n)
+    eval_flow_at_dim(TanhFlow, tanh_flow, 2, K, n)
+    eval_flow_at_dim(TanhFlow, tanh_flow, 4, K, n)
+    eval_flow_at_dim(TanhFlow, tanh_flow, 20, K, n)
+    eval_flow_at_dim(TanhFlow, tanh_flow, 100, K, n)
+    eval_flow_at_dim(TanhFlow, tanh_flow, 1000, K, n)
+    print("Tanh flows passed.")
+    return None
 
 
 if __name__ == "__main__":
 
-	test_get_flow_class()
-	test_get_num_flow_params()
-	test_flow_param_initialization()
+    test_get_flow_class()
+    test_get_num_flow_params()
+    test_flow_param_initialization()
 
-	test_affine_flows()
-	test_elem_mult_flows()
-	test_exp_flows()
-	test_interval_flows()
-	test_planar_flows()
-	test_radial_flows()
-	test_shift_flows()
-	test_simplex_bijection_flows()
-	test_softplus_flows()
-	test_tanh_flows()
-
+    test_affine_flows()
+    test_elem_mult_flows()
+    test_exp_flows()
+    test_interval_flows()
+    test_planar_flows()
+    test_radial_flows()
+    test_shift_flows()
+    test_simplex_bijection_flows()
+    test_softplus_flows()
+    test_tanh_flows()

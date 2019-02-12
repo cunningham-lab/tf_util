@@ -18,8 +18,9 @@ from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 from cvxopt import spmatrix, amd
 import matplotlib.pyplot as plt
 
-def approx_equal(arg1, arg2, eps, allow_special=False):
-    if (allow_special):
+
+def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
+    if allow_special:
         neginf_inds1 = np.isneginf(arg1)
         posinf_inds1 = np.isposinf(arg1)
         nan_inds1 = np.isnan(arg1)
@@ -28,12 +29,28 @@ def approx_equal(arg1, arg2, eps, allow_special=False):
         nan_inds2 = np.isnan(arg2)
 
         evaltype = np.int32
-        assert(np.sum(np.abs(neginf_inds1.astype(evaltype) - neginf_inds2.astype(evaltype))) == 0)
-        assert(np.sum(np.abs(posinf_inds1.astype(evaltype) - posinf_inds2.astype(evaltype))) == 0)
-        assert(np.sum(np.abs(nan_inds1.astype(evaltype) - nan_inds2.astype(evaltype))) == 0)
+        assert (
+            np.sum(
+                np.abs(neginf_inds1.astype(evaltype) - neginf_inds2.astype(evaltype))
+            )
+            == 0
+        )
+        assert (
+            np.sum(
+                np.abs(posinf_inds1.astype(evaltype) - posinf_inds2.astype(evaltype))
+            )
+            == 0
+        )
+        assert (
+            np.sum(np.abs(nan_inds1.astype(evaltype) - nan_inds2.astype(evaltype))) == 0
+        )
 
-        nonfinite_inds1 = np.logical_or(neginf_inds1, np.logical_or(posinf_inds1, nan_inds1))
-        nonfinite_inds2 =np.logical_or(neginf_inds2, np.logical_or(posinf_inds2, nan_inds2))
+        nonfinite_inds1 = np.logical_or(
+            neginf_inds1, np.logical_or(posinf_inds1, nan_inds1)
+        )
+        nonfinite_inds2 = np.logical_or(
+            neginf_inds2, np.logical_or(posinf_inds2, nan_inds2)
+        )
         num_nonfinite = nonfinite_inds1.shape[0]
 
         finite_inds1 = np.logical_not(nonfinite_inds1)
@@ -45,20 +62,24 @@ def approx_equal(arg1, arg2, eps, allow_special=False):
     else:
         num_finite = np.prod(arg1.shape)
 
-    if (num_finite > 0):
-        maxerr = np.max(np.square(arg1 - arg2))
+    if num_finite > 0:
+        if perc:
+            maxerr = np.max(np.abs(arg1 - arg2) / np.abs(arg1))
+        else:
+            maxerr = np.max(np.square(arg1 - arg2))
     else:
-        if (num_nonfinite == 0):
-            print('Failed: given zero-length vector, so no test.')
+        if num_nonfinite == 0:
+            print("Failed: given zero-length vector, so no test.")
             return False
-        else: # nonfinite values matched
+        else:  # nonfinite values matched
             return True
 
-    if (maxerr < eps):
+    if maxerr < eps:
         return True
     else:
-        print('Failed: max error:', maxerr)
+        print("Failed: max error:", maxerr)
         return False
+
 
 def get_sampler_func(dist, D):
     if dist is None:
@@ -222,18 +243,18 @@ def get_density_func(dist, D):
 
     elif dist["family"] == "truncated_normal":
         raise NotImplementedError()
-        #mu = dist["mu"]
-        #Sigma = dist["Sigma"]
-        #dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
-        #return get_density_func(dist, D)
+        # mu = dist["mu"]
+        # Sigma = dist["Sigma"]
+        # dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
+        # return get_density_func(dist, D)
 
     elif dist["family"] == "isotropic_truncated_normal":
         raise NotImplementedError()
-        #mu = dist["mu"]
-        #scale = dist["scale"]
-        #Sigma = scale * np.eye(D)
-        #dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
-        #return get_density_func(dist, D)
+        # mu = dist["mu"]
+        # scale = dist["scale"]
+        # Sigma = scale * np.eye(D)
+        # dist = {"family": "multivariate_normal", "mu": mu, "Sigma": Sigma}
+        # return get_density_func(dist, D)
 
     elif dist["family"] == "dirichlet":
         alpha = dist["alpha"]
@@ -415,6 +436,7 @@ def get_GP_Sigma(tau, T, Ts):
             if i != j:
                 K[j, i] = K[i, j]
     return K
+
 
 """
 def get_S_D_graph(x, D, T):

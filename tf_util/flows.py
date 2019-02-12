@@ -48,7 +48,7 @@ class PlanarFlowLayer(Layer):
         self.w = None
         self.b = None
         self.lock = False
-        self.inits = inits;
+        self.inits = inits
 
     def get_layer_info(self,):
         u_dim = (self.dim, 1)
@@ -64,8 +64,8 @@ class PlanarFlowLayer(Layer):
         else:
             initializers = []
             for i in range(len(self.inits)):
-                initializers.append(tf.constant(self.inits[i]));
-            
+                initializers.append(tf.constant(self.inits[i]))
+
         return self.name, self.param_names, dims, initializers, self.lock
 
     def get_params(self,):
@@ -313,6 +313,7 @@ class SoftPlusLayer(Layer):
         sum_log_det_jacobians += log_det_jacobian
         return z_out, sum_log_det_jacobians
 
+
 class StructuredSpinnerLayer(Layer):
     def __init__(self, name, dim):
         self.name = name
@@ -532,7 +533,7 @@ class ElemMultLayer(Layer):
     def get_layer_info(self,):
         a_dim = (self.dim, 1)
         dims = [a_dim]
-        if (self.inits is None):
+        if self.inits is None:
             initializers = [tf.glorot_uniform_initializer()]
         else:
             initializers = [tf.constant(self.inits[0])]
@@ -555,13 +556,6 @@ class ElemMultLayer(Layer):
             z = tf.multiply(z, tf.expand_dims(self.a, 1))
         sum_log_det_jacobians += log_det_jacobian
         return z, sum_log_det_jacobians
-
-
-
-
-
-
-
 
 
 # Latent dynamical flows

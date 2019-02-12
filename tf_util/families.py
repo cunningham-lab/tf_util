@@ -165,7 +165,7 @@ class Family:
         _Z, _log_p_z, _elbos, _R2s = sess.run([Z, log_p_z, elbos, R2s], feed_dict)
         KLs = []
         for k in range(K):
-            if (self.has_log_p):
+            if self.has_log_p:
                 log_p_z_k = _log_p_z[k, :]
                 Z_k = _Z[k, :, :]
                 params_k = eta_draw_params[k]
@@ -174,7 +174,7 @@ class Family:
                 if checkEntropy:
                     self.check_entropy(log_p_z_k, params_k)
             else:
-                KLs.append(np.nan);
+                KLs.append(np.nan)
         return np.array(_elbos), np.array(_R2s), np.array(KLs), _Z
 
     def approx_KL(self, log_Q, Z, params):
@@ -333,7 +333,7 @@ class MultivariateNormal(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        
+
         ones = tf.ones((self.D, self.D), dtype=DTYPE)
         cov_con_mask_2D = tf.matrix_band_part(ones, 0, -1)
 

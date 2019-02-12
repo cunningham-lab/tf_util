@@ -19,163 +19,171 @@ import scipy.linalg
 
 DTYPE = tf.float64
 
+
 def get_flow_class(flow_name):
-    if flow_name == 'AffineFlow':
+    if flow_name == "AffineFlow":
         return AffineFlow
-    elif (flow_name == 'CholProdFlow'):
+    elif flow_name == "CholProdFlow":
         return CholProdFlow
-    elif flow_name == 'ElemMultFlow':
+    elif flow_name == "ElemMultFlow":
         return ElemMultFlow
-    elif (flow_name == 'ExpFlow'):
+    elif flow_name == "ExpFlow":
         return ExpFlow
-    elif (flow_name == 'IntervalFlow'):
+    elif flow_name == "IntervalFlow":
         return IntervalFlow
-    elif (flow_name == 'PlanarFlow'):
+    elif flow_name == "PlanarFlow":
         return PlanarFlow
-    elif (flow_name == 'RadialFlow'):
+    elif flow_name == "RadialFlow":
         return RadialFlow
-    elif (flow_name == 'ShiftFlow'):
+    elif flow_name == "ShiftFlow":
         return ShiftFlow
-    elif (flow_name == 'SimplexBijectionFlow'):
+    elif flow_name == "SimplexBijectionFlow":
         return SimplexBijectionFlow
-    elif (flow_name == 'SoftPlusFlow'):
+    elif flow_name == "SoftPlusFlow":
         return SoftPlusFlow
-    elif (flow_name == 'StructuredSpinnerFlow'):
+    elif flow_name == "StructuredSpinnerFlow":
         return StructuredSpinnerFlow
-    elif (flow_name == 'StructuredSpinnerTanhFlow'):
+    elif flow_name == "StructuredSpinnerTanhFlow":
         return StructuredSpinnerTanhFlow
-    elif (flow_name == 'TanhFlow'):
+    elif flow_name == "TanhFlow":
         return TanhFlow
     else:
         raise NotImplementedError()
 
+
 def get_num_flow_params(flow_class, D):
     if flow_class == AffineFlow:
-        return D*(D+1)
-    elif (flow_class == CholProdFlow):
+        return D * (D + 1)
+    elif flow_class == CholProdFlow:
         raise NotImplementedError()
     elif flow_class == ElemMultFlow:
         return D
-    elif (flow_class == ExpFlow):
+    elif flow_class == ExpFlow:
         return 0
-    elif (flow_class == IntervalFlow):
+    elif flow_class == IntervalFlow:
         return 2
     elif flow_class == PlanarFlow:
         return 2 * D + 1
-    elif (flow_class == RadialFlow):
+    elif flow_class == RadialFlow:
         return D + 2
-    elif (flow_class == ShiftFlow):
+    elif flow_class == ShiftFlow:
         return D
-    elif (flow_class == SimplexBijectionFlow):
+    elif flow_class == SimplexBijectionFlow:
         return 0
-    elif (flow_class == SoftPlusFlow):
+    elif flow_class == SoftPlusFlow:
         return 0
-    elif (flow_class == StructuredSpinnerFlow):
+    elif flow_class == StructuredSpinnerFlow:
         raise NotImplementedError()
-    elif (flow_class == StructuredSpinnerTanhFlow):
+    elif flow_class == StructuredSpinnerTanhFlow:
         raise NotImplementedError()
-    elif (flow_class == TanhFlow):
+    elif flow_class == TanhFlow:
         return 0
     else:
         raise NotImplementedError()
+
 
 def get_flow_out_dim(flow_class, dim):
     if flow_class == AffineFlow:
         return dim
-    elif (flow_class == CholProdFlow):
+    elif flow_class == CholProdFlow:
         raise NotImplementedError()
     elif flow_class == ElemMultFlow:
         return dim
-    elif (flow_class == ExpFlow):
+    elif flow_class == ExpFlow:
         return dim
-    elif (flow_class == IntervalFlow):
+    elif flow_class == IntervalFlow:
         return dim
     elif flow_class == PlanarFlow:
         return dim
-    elif (flow_class == RadialFlow):
+    elif flow_class == RadialFlow:
         return dim
-    elif (flow_class == ShiftFlow):
+    elif flow_class == ShiftFlow:
         return dim
-    elif (flow_class == SimplexBijectionFlow):
+    elif flow_class == SimplexBijectionFlow:
         return dim + 1
-    elif (flow_class == SoftPlusFlow):
+    elif flow_class == SoftPlusFlow:
         return dim
-    elif (flow_class == StructuredSpinnerFlow):
+    elif flow_class == StructuredSpinnerFlow:
         raise NotImplementedError()
-    elif (flow_class == StructuredSpinnerTanhFlow):
+    elif flow_class == StructuredSpinnerTanhFlow:
         raise NotImplementedError()
-    elif (flow_class == TanhFlow):
+    elif flow_class == TanhFlow:
         return dim
     else:
         raise NotImplementedError()
 
+
 def get_flow_param_inits(flow_class, D):
     if flow_class == AffineFlow:
-        return [tf.glorot_uniform_initializer()], [D*(D+1)]
-    elif (flow_class == CholProdFlow):
+        return [tf.glorot_uniform_initializer()], [D * (D + 1)]
+    elif flow_class == CholProdFlow:
         raise NotImplementedError()
     elif flow_class == ElemMultFlow:
         return [tf.glorot_uniform_initializer()], [D]
-    elif (flow_class == ExpFlow):
+    elif flow_class == ExpFlow:
         return [None], [0]
-    elif (flow_class == IntervalFlow):
+    elif flow_class == IntervalFlow:
         raise NotImplementedError()
     elif flow_class == PlanarFlow:
-        inits = [tf.constant(np.zeros(D)), \
-                 tf.glorot_uniform_initializer(), \
-                 tf.constant(np.zeros(1))]
+        inits = [
+            tf.constant(np.zeros(D)),
+            tf.glorot_uniform_initializer(),
+            tf.constant(np.zeros(1)),
+        ]
         dims = [D, D, 1]
         return inits, dims
-    elif (flow_class == RadialFlow):
+    elif flow_class == RadialFlow:
         raise NotImplementedError()
-    elif (flow_class == ShiftFlow):
+    elif flow_class == ShiftFlow:
         return [tf.glorot_uniform_initializer()], [D]
-    elif (flow_class == SimplexBijectionFlow):
+    elif flow_class == SimplexBijectionFlow:
         return [None], [0]
-    elif (flow_class == SoftPlusFlow):
+    elif flow_class == SoftPlusFlow:
         return [None], [0]
-    elif (flow_class == StructuredSpinnerFlow):
+    elif flow_class == StructuredSpinnerFlow:
         raise NotImplementedError()
-    elif (flow_class == StructuredSpinnerTanhFlow):
+    elif flow_class == StructuredSpinnerTanhFlow:
         raise NotImplementedError()
-    elif (flow_class == TanhFlow):
+    elif flow_class == TanhFlow:
         return [None], [0]
     else:
         raise NotImplementedError()
+
 
 def get_density_network_inits(arch_dict):
     inits_by_layer = []
     dims_by_layer = []
-    D = arch_dict['D']
+    D = arch_dict["D"]
 
-    if (arch_dict['latent_dynamics'] is not None):
+    if arch_dict["latent_dynamics"] is not None:
         raise NotImplementedError()
 
-    if (arch_dict['mult_and_shift'] == 'pre'):
-        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict['D'])
+    if arch_dict["mult_and_shift"] == "pre":
+        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
 
-        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict['D'])
+        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
 
-    TIF_flow = get_flow_class(arch_dict['TIF_flow_type'])
-    for i in range(arch_dict['repeats']):
+    TIF_flow = get_flow_class(arch_dict["TIF_flow_type"])
+    for i in range(arch_dict["repeats"]):
         inits, dims = get_flow_param_inits(TIF_flow, D)
         inits_by_layer.append(inits)
         dims_by_layer.append(dims)
 
-    if (arch_dict['mult_and_shift'] == 'post'):
-        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict['D'])
+    if arch_dict["mult_and_shift"] == "post":
+        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
 
-        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict['D'])
+        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
 
     return inits_by_layer, dims_by_layer
+
 
 # Time invariant flows
 class NormFlow:
@@ -200,11 +208,11 @@ class NormFlow:
         """
         self.params = params
         self.inputs = inputs
-        if (isinstance(inputs, tf.Tensor)):
+        if isinstance(inputs, tf.Tensor):
             self.dim = inputs.shape[2]
         else:
             self.dim = 0
-        if (isinstance(params, tf.Tensor)):
+        if isinstance(params, tf.Tensor):
             self.num_params = self.params.shape[1]
         else:
             self.num_params = 0
@@ -221,7 +229,6 @@ class NormFlow:
         raise NotImplementedError(str(type(self)))
 
 
-
 class AffineFlow(NormFlow):
     """Affine flow layer.
 
@@ -233,6 +240,7 @@ class AffineFlow(NormFlow):
         self.b (tf.tensor): [K, self.dim, self.dim] The $$b$$ parameter.
 
     """
+
     def __init__(self, params, inputs):
         """Affine flow layer constructor.
 
@@ -244,8 +252,8 @@ class AffineFlow(NormFlow):
         """
         super().__init__(params, inputs)
         self.name = "AffineFlow"
-        self.A = params[:, :(tf.square(self.dim))]
-        self.b = params[:, (tf.square(self.dim)):]
+        self.A = params[:, : (tf.square(self.dim))]
+        self.b = params[:, (tf.square(self.dim)) :]
 
     def forward_and_jacobian(self,):
         """Perform the flow operation and compute the log-abs-det-jac.
@@ -256,20 +264,22 @@ class AffineFlow(NormFlow):
                 value of the determinant of the jacobian of the mappings.
     
         """
-        z = tf.transpose(self.inputs, [0,2,1]) # make [K, dim, n]
+        z = tf.transpose(self.inputs, [0, 2, 1])  # make [K, dim, n]
         A_shape = tf.shape(self.A)
         K = A_shape[0]
-        A = tf.reshape(self.A, [K, self.dim, self.dim]) # [K, dim, dim]
-        b = tf.expand_dims(self.b, 2) # [K, dim, 1]
+        A = tf.reshape(self.A, [K, self.dim, self.dim])  # [K, dim, dim]
+        b = tf.expand_dims(self.b, 2)  # [K, dim, 1]
 
         # compute the log abs det jac
         log_det_jac = tf.log(tf.abs(tf.matrix_determinant(A)))
-        log_det_jac = tf.tile(tf.expand_dims(log_det_jac, 1), \
-                                   [1, tf.shape(self.inputs)[1]])
+        log_det_jac = tf.tile(
+            tf.expand_dims(log_det_jac, 1), [1, tf.shape(self.inputs)[1]]
+        )
 
-        out = tf.transpose(tf.matmul(A, z) + b, [0,2,1])
+        out = tf.transpose(tf.matmul(A, z) + b, [0, 2, 1])
 
         return out, log_det_jac
+
 
 class CholProdFlow(NormFlow):
     """Cholesky product flow layer.
@@ -288,6 +298,7 @@ class CholProdFlow(NormFlow):
         self.b (tf.tensor): [K, self.dim, self.dim] The $$b$$ parameter.
 
     """
+
     def __init__(self, params, inputs):
         """Affine flow layer constructor.
 
@@ -323,15 +334,15 @@ class CholProdFlow(NormFlow):
         L_diag_elems = tf.matrix_diag_part(L)
 
         Sigma = tf.matmul(L, tf.transpose(L, [0, 1, 3, 2]))
-        #diag_boost = self.diag_eps * tf.eye(D, batch_shape=[K, M], dtype=tf.float64)
-        #LLT = LLT + diag_boost
-        vecSigma = tf.reshape(Sigma, [K,M,D*D])
+        # diag_boost = self.diag_eps * tf.eye(D, batch_shape=[K, M], dtype=tf.float64)
+        # LLT = LLT + diag_boost
+        vecSigma = tf.reshape(Sigma, [K, M, D * D])
 
         L_log_det = tf.reduce_sum(z_diag_elems, 2)
 
         var = tf.cast(tf.range(1, sqrtD + 1), tf.float64)
         diag_facs = tf.expand_dims(tf.expand_dims(floatD - var + 1.0, 0), 0)
-        
+
         chol_prod_log_det = float_D * np.log(2.0) + tf.reduce_sum(
             tf.multiply(diag_facs, tf.log(L_diag_elems)), 2
         )
@@ -339,7 +350,6 @@ class CholProdFlow(NormFlow):
         log_det_jac = L_log_det + chol_prod_log_det
 
         return vecSigma, log_det_jac
-
 
 
 class ElemMultFlow(NormFlow):
@@ -448,7 +458,7 @@ class IntervalFlow(NormFlow):
     
         """
         for i in range(a.shape[0]):
-            assert(a[i] < b[i])
+            assert a[i] < b[i]
 
         super().__init__(params, inputs)
         self.name = "IntervalFlow"
@@ -474,7 +484,6 @@ class IntervalFlow(NormFlow):
         out = tf.multiply(m, tanh_z) + c
         log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(tanh_z)), 2)
         return out, log_det_jac
-
 
 
 class PlanarFlow(NormFlow):
@@ -568,9 +577,9 @@ class RadialFlow(NormFlow):
         """
         super().__init__(params, inputs)
         self.name = "RadialFlow"
-        self.alpha = params[:,0:1]
-        self._beta = params[:,1:2]
-        self.z0 = params[:,2:]
+        self.alpha = params[:, 0:1]
+        self._beta = params[:, 1:2]
+        self.z0 = params[:, 2:]
 
         # reparameterize to ensure invertibility
         m_beta = tf.log(1.0 + tf.exp(self._beta))
@@ -594,13 +603,13 @@ class RadialFlow(NormFlow):
         h = 1.0 / (alpha + r)
         hprime = -1.0 / tf.square(alpha + r)
 
-        out = z + beta*h*(z - z0)
+        out = z + beta * h * (z - z0)
 
-        log_det_jac1 = (tf.cast(self.dim, dtype=DTYPE)-1.0) * tf.log((1.0 + beta*h))
-        log_det_jac2 = tf.log(1.0 + beta*h + beta*hprime*r)
-        log_det_jac = log_det_jac1+log_det_jac2
+        log_det_jac1 = (tf.cast(self.dim, dtype=DTYPE) - 1.0) * tf.log((1.0 + beta * h))
+        log_det_jac2 = tf.log(1.0 + beta * h + beta * hprime * r)
+        log_det_jac = log_det_jac1 + log_det_jac2
 
-        return out, log_det_jac[:,:,0]
+        return out, log_det_jac[:, :, 0]
 
 
 class ShiftFlow(NormFlow):
@@ -639,12 +648,11 @@ class ShiftFlow(NormFlow):
         n = tf.shape(z)[1]
 
         # compute the log abs det jacobian
-        log_det_jac = tf.zeros_like(z[:,:,0])
+        log_det_jac = tf.zeros_like(z[:, :, 0])
 
         # compute output
         z = z + tf.expand_dims(self.b, 1)
         return z, log_det_jac
-
 
 
 class SimplexBijectionFlow(NormFlow):
@@ -654,6 +662,7 @@ class SimplexBijectionFlow(NormFlow):
     log_det_jac = log(1 - (sum i e^zi / (sum i e^zi+1)) - D log(sum i e^zi + 1) + sum i zi
 
     """
+
     def __init__(self, params, inputs):
         """Simplex bijection layer layer constructor.
 
@@ -688,6 +697,7 @@ class SimplexBijectionFlow(NormFlow):
             (ex / tf.expand_dims(den, 2), 1.0 / tf.expand_dims(den, 2)), axis=2
         )
         return out, log_det_jac
+
 
 class SoftPlusFlow(NormFlow):
     def __init__(self, params, inputs):
@@ -776,6 +786,7 @@ class StructuredSpinnerFlow(NormFlow):
         sum_log_det_jacobians += tf.cast(T, tf.float64) * log_det_jacobian
         return z, sum_log_det_jacobians
 
+
 class StructuredSpinnerTanhFlow(StructuredSpinnerFlow):
     def forward_and_jacobian(self, z, sum_log_det_jacobians):
         z, sum_log_det_jacobians = super().forward_and_jacobian(
@@ -785,6 +796,7 @@ class StructuredSpinnerTanhFlow(StructuredSpinnerFlow):
         log_det_jacobian = tf.reduce_sum(tf.log(1.0 - (z_out ** 2)), [2, 3])
         sum_log_det_jacobians += log_det_jacobian
         return z_out, sum_log_det_jacobians
+
 
 class TanhFlow(NormFlow):
     """Tanh layer.
@@ -827,6 +839,3 @@ class TanhFlow(NormFlow):
         out = tanh_z
 
         return out, log_det_jac
-
-
-
