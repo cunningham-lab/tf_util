@@ -16,8 +16,6 @@
 import numpy as np
 from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 #from cvxopt import spmatrix, amd
-import matplotlib.pyplot as plt
-
 
 def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
     if allow_special:
