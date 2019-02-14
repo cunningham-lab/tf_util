@@ -48,7 +48,7 @@ def test_AL_cost():
 
     all_params = tf.trainable_variables()
 
-    log_q_z = tf.tensordot(W, a, [[2], [0]])
+    log_q_z = tf.tensordot(W, a, [[2], [0]]) + b[0]
     H = -tf.reduce_mean(log_q_z)
 
     mu = np.array([1.0, 2.0, 3.0])
@@ -78,7 +78,6 @@ def test_AL_cost():
 
     for i in range(len(all_params)):
         assert approx_equal(_grads_true[i], _grads[i], EPS)
-    print("AL cost passed.")
     return None
 
 
@@ -138,8 +137,6 @@ def test_log_grads():
 
     log_grads(new_grads2_2, cost_grads2, cur_ind + 1)
     assert approx_equal(cost_grads2, cost_grads2_2_true, LG_EPS)
-
-    print("Log grads passed.")
     return None
 
 

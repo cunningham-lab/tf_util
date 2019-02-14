@@ -18,6 +18,11 @@ from scipy.stats import invwishart, dirichlet, multivariate_normal, multinomial
 #from cvxopt import spmatrix, amd
 
 def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
+    if (type(arg1) in [float, np.float32, np.float64]):
+        arg1 = np.array([arg1])
+    if (type(arg2) in [float, np.float32, np.float64]):
+        arg2 = np.array([arg2])
+
     if allow_special:
         neginf_inds1 = np.isneginf(arg1)
         posinf_inds1 = np.isposinf(arg1)
@@ -49,11 +54,11 @@ def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
         nonfinite_inds2 = np.logical_or(
             neginf_inds2, np.logical_or(posinf_inds2, nan_inds2)
         )
-        num_nonfinite = nonfinite_inds1.shape[0]
+        num_nonfinite = np.sum(nonfinite_inds1)
 
         finite_inds1 = np.logical_not(nonfinite_inds1)
         finite_inds2 = np.logical_not(nonfinite_inds2)
-        num_finite = finite_inds1.shape[0]
+        num_finite = np.sum(finite_inds1)
 
         arg1 = arg1[finite_inds1]
         arg2 = arg2[finite_inds2]
@@ -62,7 +67,10 @@ def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
 
     if num_finite > 0:
         if perc:
-            maxerr = np.max(np.abs(arg1 - arg2) / np.abs(arg1))
+            if (arg1==0):
+                maxerr = np.max(np.abs(arg1 - arg2))
+            else:
+                maxerr = np.max(np.abs(arg1 - arg2) / np.abs(arg1))
         else:
             maxerr = np.max(np.square(arg1 - arg2))
     else:
@@ -72,10 +80,10 @@ def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
         else:  # nonfinite values matched
             return True
 
-    if maxerr < eps:
+    if maxerr <= eps:
         return True
     else:
-        print("Failed: max error:", maxerr)
+        #print("Failed: max error:", maxerr)
         return False
 
 
