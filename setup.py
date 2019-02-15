@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='tf_util',
-      version='1.0',
+      version='0.1',
       description='Useful tensorflow libraries.',
       author='Sean Bittner',
       author_email='srb2201@columbia.edu',
