@@ -79,7 +79,6 @@ def test_AL_cost():
     for i in range(len(all_params)):
         assert approx_equal(_grads_true[i], _grads[i], EPS)
     return None
-c
 
 def unroll_params(param_list):
     num_params = len(param_list)
