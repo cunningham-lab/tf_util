@@ -15,16 +15,17 @@ from tf_util.normalizing_flows import (
     StructuredSpinnerFlow,
     StructuredSpinnerTanhFlow,
     TanhFlow,
-)
+    RealNVP)
 
 from tf_util.normalizing_flows import (
     get_num_flow_params,
     get_flow_out_dim,
     get_flow_param_inits,
     get_flow_class,
-)
+    get_real_nvp_num_params)
 
 import os
+from tf_util.tf_util import get_real_nvp_mask_list, nvp_neural_network_np
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
@@ -253,6 +254,60 @@ def radial_flow(z, params):
 
     return out, log_det_jac
 
+def real_nvp(z, params, num_masks, nlayers, upl):
+    """Real NVP operation and log abs det jac.
+
+    The first num_masks masks of the following pattern are used.
+
+    mask 1: [++++++++--------] (first D/2) f=1+
+    mask 2: [--------++++++++] (last D/2)  f=1-
+    mask 3: [+-+-+-+-+-+-+-+-] (every other) f=D/2+
+    mask 4: [-+-+-+-+-+-+-+-+] (every other shift) f=D/2-
+    mask 5: [++++----++++----] (first D/2) f=2+
+    mask 6: [----++++----++++] (last D/2)  f=2-
+    mask 7: [++--++--++--++--] (every other) f=D/4+
+    mask 8: [--++--++--++--++] (every other shift) f=D/4-
+    ...
+
+    # Arguments
+        z (np.array): [D,] Input vector.
+        params (np.array): [num_param,] Total parameter vector
+        num_masks (int): number of masking layers
+        nlayers (int): number of neural network layers per mask
+        upl (int): number of units per layer
+
+    # Returns 
+        out (np.array): [D,] Output of affine flow operation.
+        log_det_jacobian (np.float): Log abs det jac.
+        
+    """
+    D = z.shape[0]
+    num_params = params.shape[0]
+    opt_params = {'num_masks':num_masks, 'nlayers':nlayers, 'upl':upl}
+    assert num_params == get_num_flow_params(RealNVP, D, opt_params)
+
+    # get list of masks
+    masks = get_real_nvp_mask_list(D, num_masks)
+
+    # construct functions for each mask
+    param_ind = 0
+    z_i = z
+    sum_log_det_jac = 0.0
+    for i in range(num_masks):
+        mask_i = masks[i]
+
+        s, param_ind = nvp_neural_network_np(z_i, params, mask_i, nlayers, upl, param_ind)
+        t, param_ind = nvp_neural_network_np(z_i, params, mask_i, nlayers, upl, param_ind)
+
+        z_i = (mask_i)*z_i + (1-mask_i)*(z_i*np.exp(s) + t)
+
+        log_det_jac = np.sum((1-mask_i)*s)
+        sum_log_det_jac += log_det_jac
+
+    return z_i, sum_log_det_jac
+
+
+    
 
 # Shift flows
 def shift_flow(z, params):
@@ -525,6 +580,7 @@ def test_get_flow_class():
     assert get_flow_class("StructuredSpinnerFlow") == StructuredSpinnerFlow
     assert get_flow_class("StructuredSpinnerTanhFlow") == StructuredSpinnerTanhFlow
     assert get_flow_class("TanhFlow") == TanhFlow
+    assert get_flow_class("RealNVP") == RealNVP
 
     print("Get flow class passed.")
     return None
@@ -621,21 +677,34 @@ def test_get_num_flow_params():
     assert get_num_flow_params(TanhFlow, 100) == 0
     assert get_num_flow_params(TanhFlow, 1000) == 0
 
+    # num_masks,nlayers,upl==1,1,1
+    assert get_num_flow_params(RealNVP, 1) == 8
+    assert get_num_flow_params(RealNVP, 2) == 14
+    assert get_num_flow_params(RealNVP, 4) == 26
+    assert get_num_flow_params(RealNVP, 20) == 122
+    assert get_num_flow_params(RealNVP, 100) == 602
+    assert get_num_flow_params(RealNVP, 1000) == 6002
+
     print("Get number of flow parameters passed.")
     return None
 
 
 def test_flow_param_initialization():
     Ds = [1, 2, 4, 20, 100, 1000]
-    all_glorot_uniform_flows = [AffineFlow, ElemMultFlow, ShiftFlow]
+    all_glorot_uniform_flows = [AffineFlow, ElemMultFlow, ShiftFlow, RealNVP]
     all_no_param_flows = [ExpFlow, SimplexBijectionFlow, SoftPlusFlow, TanhFlow]
     with tf.Session() as sess:
         for D in Ds:
             for flow in all_glorot_uniform_flows:
-                inits, dims = get_flow_param_inits(flow, D)
+                if (flow == RealNVP):
+                    opt_params = {'num_masks':1, 'nlayers':1, 'upl':1}
+                    inits, dims = get_flow_param_inits(flow, D, opt_params)
+                    assert sum(dims) == get_num_flow_params(flow, D, opt_params)
+                else:
+                    inits, dims = get_flow_param_inits(flow, D)
+                    assert sum(dims) == get_num_flow_params(flow, D)
                 assert len(inits) == 1
                 # assert(isinstance(inits[0], tf.glorot_uniform_initializer))
-                assert sum(dims) == get_num_flow_params(flow, D)
 
             for flow in all_no_param_flows:
                 inits, dims = get_flow_param_inits(flow, D)
@@ -884,12 +953,25 @@ def test_tanh_flows():
     return None
 
 
+def test_real_nvp():
+    z = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    D = z.shape[0]
+    num_masks = 2
+    nlayers = 1
+    upl = 10
+    num_params = get_real_nvp_num_params(D, num_masks, nlayers, upl)
+    params = np.random.normal(0.0, 1.0, (num_params,))
+    out, ldj = real_nvp(z, params, num_masks, nlayers, upl)
+    return None
+
+
 if __name__ == "__main__":
 
     test_get_flow_class()
     test_get_num_flow_params()
     test_flow_param_initialization()
 
+    """
     test_affine_flows()
     test_elem_mult_flows()
     test_exp_flows()
@@ -899,4 +981,6 @@ if __name__ == "__main__":
     test_shift_flows()
     test_simplex_bijection_flows()
     test_softplus_flows()
-    test_tanh_flows()
+    test_tanh_flows()"""
+
+    test_real_nvp()

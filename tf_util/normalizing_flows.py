@@ -47,11 +47,13 @@ def get_flow_class(flow_name):
         return StructuredSpinnerTanhFlow
     elif flow_name == "TanhFlow":
         return TanhFlow
+    elif flow_name == "RealNVP":
+        return RealNVP
     else:
         raise NotImplementedError()
 
 
-def get_num_flow_params(flow_class, D):
+def get_num_flow_params(flow_class, D, opt_params={}):
     if flow_class == AffineFlow:
         return D * (D + 1)
     elif flow_class == CholProdFlow:
@@ -78,6 +80,20 @@ def get_num_flow_params(flow_class, D):
         raise NotImplementedError()
     elif flow_class == TanhFlow:
         return 0
+    elif flow_class == RealNVP:
+        if ('num_masks' in opt_params.keys()):
+            num_masks = opt_params['num_masks']
+        else:
+            num_masks = 1
+        if ('nlayers' in opt_params.keys()):
+            nlayers = opt_params['nlayers']
+        else:
+            nlayers = 1
+        if ('upl' in opt_params.keys()):
+            upl = opt_params['upl']
+        else:
+            upl = 1
+        return get_real_nvp_num_params(D, num_masks, nlayers, upl)
     else:
         raise NotImplementedError()
 
@@ -109,11 +125,13 @@ def get_flow_out_dim(flow_class, dim):
         raise NotImplementedError()
     elif flow_class == TanhFlow:
         return dim
+    elif flow_class == RealNVP:
+        return dim
     else:
         raise NotImplementedError()
 
 
-def get_flow_param_inits(flow_class, D):
+def get_flow_param_inits(flow_class, D, opt_params={}):
     if flow_class == AffineFlow:
         return [tf.glorot_uniform_initializer()], [D * (D + 1)]
     elif flow_class == CholProdFlow:
@@ -146,6 +164,12 @@ def get_flow_param_inits(flow_class, D):
         raise NotImplementedError()
     elif flow_class == TanhFlow:
         return [None], [0]
+    elif flow_class == RealNVP:
+        num_masks = opt_params['num_masks']
+        nlayers = opt_params['nlayers']
+        upl = opt_params['upl']
+        num_params = get_real_nvp_num_params(D, num_masks, nlayers, upl)
+        return [tf.glorot_uniform_initializer()], [num_params]
     else:
         raise NotImplementedError()
 
@@ -839,3 +863,48 @@ class TanhFlow(NormFlow):
         out = tanh_z
 
         return out, log_det_jac
+
+
+class RealNVP(NormFlow):
+    """Real NVP
+
+    Implements the function [imsert some tex]
+
+    # Attributes
+        self.params (tf.tensor): [K, self.dim] u parameter from self.params.
+
+    """
+
+    def __init__(self, params, inputs):
+        """Planar flow layer constructor.
+
+        Sets u, w, b given params, ensuring that the flow is invertible.
+
+        # Arguments 
+            self.params (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer. 
+            self.inputs (tf.tensor): [K, batch_size, self.dim] layer input.
+    
+        """
+        super().__init__(params, inputs)
+        self.name = "RealNVP"
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+
+        f_z = z
+        log_det_jacobian = 0.0*tf.reduce_sum(z, 2)
+
+        return f_z, log_det_jacobian
+
+def get_real_nvp_num_params(D, num_masks, nlayers, upl):
+    return 2*num_masks*(2*D*upl + D + upl + (nlayers-1)*(upl+1)*upl)
+
