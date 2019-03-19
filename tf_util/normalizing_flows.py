@@ -193,7 +193,10 @@ def get_density_network_inits(arch_dict):
 
     TIF_flow = get_flow_class(arch_dict["TIF_flow_type"])
     for i in range(arch_dict["repeats"]):
-        inits, dims = get_flow_param_inits(TIF_flow, D)
+        if (TIF_flow == RealNVP):
+            inits, dims = get_flow_param_inits(TIF_flow, D, arch_dict['real_nvp_arch'])
+        else:
+            inits, dims = get_flow_param_inits(TIF_flow, D)
         inits_by_layer.append(inits)
         dims_by_layer.append(dims)
 

@@ -36,6 +36,7 @@ from tf_util.normalizing_flows import (
     ElemMultFlow,
     get_flow_class,
     get_density_network_inits,
+    RealNVP,
 )
 
 DTYPE = tf.float64
@@ -665,13 +666,29 @@ def get_archstring(arch_dict):
     latent_dynamics = arch_dict["latent_dynamics"]
     tif_flow_type = arch_dict["TIF_flow_type"]
     repeats = arch_dict["repeats"]
+
+    tif_str = get_TIF_string(arch_dict)
+
     if arch_dict["mult_and_shift"] == "pre":
-        tif_str = "M_A_%d%s" % (repeats, tif_flow_type[:1])
+        arch_str = "M_A_%d%s" % (repeats, tif_str)
     elif arch_dict["mult_and_shift"] == "post":
-        tif_str = "%d%s_M_A" % (repeats, tif_flow_type[:1])
+        arch_str = "%d%s_M_A" % (repeats, tif_str)
     else:
-        tif_str = "%d%s" % (repeats, tif_flow_type[:1])
+        arch_str = "%d%s" % (repeats, tif_str)
     if latent_dynamics is not None:
-        return "%s_%s" % (latent_dynamics, tif_str)
+        return "%s_%s" % (latent_dynamics, arch_str)
     else:
-        return tif_str
+        return arch_str
+
+def get_TIF_string(arch_dict):
+    tif_flow_type = arch_dict["TIF_flow_type"]
+    if (tif_flow_type == "RealNVP"):
+        real_nvp_arch = arch_dict['real_nvp_arch']
+        tif_str = 'R_%dM_%dL_%dU' % (real_nvp_arch["num_masks"], \
+                                     real_nvp_arch["nlayers"], \
+                                     real_nvp_arch["upl"])
+    else:
+        tif_str = tif_flow_type[:1]
+    return tif_str
+
+
