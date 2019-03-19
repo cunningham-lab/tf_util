@@ -875,10 +875,8 @@ class RealNVP(NormFlow):
 
     """
 
-    def __init__(self, params, inputs):
-        """Planar flow layer constructor.
-
-        Sets u, w, b given params, ensuring that the flow is invertible.
+    def __init__(self, params, inputs, num_masks, nlayers, upl):
+        """Real NVP constructor.
 
         # Arguments 
             self.params (tf.tensor): [K, self.num_params] Tensor containing 
@@ -888,6 +886,9 @@ class RealNVP(NormFlow):
         """
         super().__init__(params, inputs)
         self.name = "RealNVP"
+        self.num_masks = num_masks
+        self.nlayers = nlayers
+        self.upl = upl
 
     def forward_and_jacobian(self,):
         """Perform the flow operation and compute the log-abs-det-jac.
@@ -900,11 +901,143 @@ class RealNVP(NormFlow):
         """
         z = self.inputs
 
-        f_z = z
-        log_det_jacobian = 0.0*tf.reduce_sum(z, 2)
+        # get list of masks
+        masks = get_real_nvp_mask_list(self.dim, self.num_masks)
+        # add two broadcasting dimensions to the front
+        for i in range(self.num_masks):
+            masks[i] = np.expand_dims(np.expand_dims(masks[i], 0), 0)
+
+
+        # construct functions for each mask
+        param_ind = 0
+        z_i = z
+        log_det_jacs = []
+        for i in range(self.num_masks):
+            mask_i = masks[i]
+
+            s, param_ind = nvp_neural_network_tf(z_i, self.params, mask_i, \
+                                                 self.nlayers, self.upl, \
+                                                 param_ind)
+            t, param_ind = nvp_neural_network_tf(z_i, self.params, mask_i, \
+                                                 self.nlayers, self.upl, \
+                                                 param_ind)
+
+            z_i = (mask_i)*z_i + (1-mask_i)*(z_i*tf.exp(s) + t)
+
+            log_det_jac = tf.reduce_sum((1-mask_i)*s, 2)
+            log_det_jacs.append(log_det_jac)
+
+        f_z = z_i
+        log_det_jacobian = sum(log_det_jacs)
 
         return f_z, log_det_jacobian
 
+def get_real_nvp_mask(D, f, first_on=True):
+    assert(f <= (D//2))
+    wavelength = D // f
+    # make sure that the wavelength is even
+    if (np.mod(wavelength, 2) == 1):
+        wavelength += 1
+    half_wl = wavelength // 2
+    mask = np.zeros((D,), np.float64)
+    ind = 0
+    if first_on:
+        bit = 1
+    else:
+        bit = 0
+
+    for i in range(f+1):
+        if (ind+half_wl > D):
+            mask[ind:] = bit
+            break
+        else:
+            mask[ind:(ind+half_wl)] = bit
+
+        if (ind+wavelength > D):
+            mask[(ind+half_wl):] = 1-bit
+            break
+        else:
+            mask[(ind+half_wl):(ind+wavelength)] = 1-bit
+
+        ind += wavelength
+
+    return mask
+
+def get_real_nvp_mask_list(D, num_masks):
+    masks = []
+    fs = []
+    max_freq_depth = num_masks//4 + 1
+    f_ind = 1
+    for i in range(max_freq_depth):
+        fs += [f_ind, f_ind, D//(2*f_ind), D//(2*f_ind)]
+        f_ind *= 2
+    firstOn = True
+    for i in range(num_masks):
+        mask_i = get_real_nvp_mask(D, fs[i], firstOn)
+        masks.append(mask_i)
+        firstOn = not firstOn
+
+    return masks
+
 def get_real_nvp_num_params(D, num_masks, nlayers, upl):
     return 2*num_masks*(2*D*upl + D + upl + (nlayers-1)*(upl+1)*upl)
+
+
+def nvp_neural_network_np(z, params, mask_i, nlayers, upl, param_ind):
+    D = z.shape[0]
+
+    A_1 = np.reshape(params[param_ind:(param_ind+D*upl)], (upl, D))
+    param_ind += D*upl
+    b_1 = params[param_ind:(param_ind+upl)]
+    param_ind += upl
+    z_l = np.tanh(np.dot(A_1,(z*mask_i)) + b_1)
+
+    for l in range(1,nlayers):
+        A_l = np.reshape(params[param_ind:(param_ind+upl*upl)], (upl, upl))
+        param_ind += upl*upl
+        b_l = params[param_ind:(param_ind+upl)]
+        param_ind += upl
+        z_l = np.tanh(np.dot(A_l,z_l) + b_l)
+
+    A_out = np.reshape(params[param_ind:(param_ind+upl*D)], (D, upl))
+    param_ind += upl*D
+    b_out = params[param_ind:(param_ind+D)]
+    param_ind += D
+    z_out = np.dot(A_out, z_l) + b_out
+
+    return z_out, param_ind
+
+
+
+def nvp_neural_network_tf(z, params, mask_i, nlayers, upl, param_ind):
+    K = tf.shape(params)[0]
+    n = tf.shape(params)[1]
+    D = tf.shape(z)[2]
+
+    # mask and transpose
+    z = tf.transpose(z*mask_i, [0, 2, 1]) # [K, D, n]
+
+    A_1 = tf.reshape(params[:, param_ind:(param_ind+D*upl)], (K, upl, D))
+    param_ind += D*upl
+    b_1 = tf.expand_dims(params[:, param_ind:(param_ind+upl)], 2)
+    param_ind += upl
+    z_l = tf.tanh(tf.matmul(A_1, z) + b_1)
+
+    for l in range(1,nlayers):
+        A_l = tf.reshape(params[:, param_ind:(param_ind+upl*upl)], (K, upl, upl))
+        param_ind += upl*upl
+        b_l = tf.expand_dims(params[:, param_ind:(param_ind+upl)], 2)
+        param_ind += upl
+        z_l = tf.tanh(tf.matmul(A_l,z_l) + b_l)
+
+    A_out = tf.reshape(params[:, param_ind:(param_ind+upl*D)], (K, D, upl))
+    param_ind += upl*D
+    b_out = tf.expand_dims(params[:, param_ind:(param_ind+D)], 2)
+    param_ind += D
+    z_out = tf.matmul(A_out, z_l) + b_out
+
+    # transpose back to [K, n, D]
+    z_out = tf.transpose(z_out, [0, 2, 1])
+
+    return z_out, param_ind
 

@@ -93,8 +93,16 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
     flow_class = get_flow_class(arch_dict["TIF_flow_type"])
     for i in range(arch_dict["repeats"]):
-        flow_layer = flow_class(params[ind], Z)
-        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        if (flow_class == PlanarFlowLayer):
+            flow_layer = flow_class(params[ind], Z)
+            Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        elif (flow_class == RealNVP):
+            real_nvp_arch = arch_dict['real_nvp_arch']
+            num_masks = real_nvp_arch['num_masks']
+            real_nvp_layers = real_nvp_arch['nlayers']
+            upl = real_nvp_arch['upl']
+            flow_layer = flow_class(params[ind], Z, num_masks, real_nvp_layers, upl)
+            Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(flow_layer)
         ind += 1
@@ -167,11 +175,20 @@ def load_nf_init(initdir, arch_dict):
             )
             init_i = [u_init, w_init, b_init]
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
-            inits_by_layer.append(init_i)
-            dims_by_layer.append(dims_i)
-            layer_ind += 1
+
+        elif arch_dict["TIF_flow_type"] == "RealNVP":
+            params_init = tf.constant(
+                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 1)], dtype=DTYPE
+            )
+            init_i = [params_init]
+            dims_i = [params_init.shape]
+
         else:
             raise NotImplementedError()
+
+        inits_by_layer.append(init_i)
+        dims_by_layer.append(dims_i)
+        layer_ind += 1
 
     if arch_dict["mult_and_shift"] == "post":
         a_init = tf.constant(theta["%s/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
@@ -735,6 +752,30 @@ def nvp_neural_network_np(z, params, mask_i, nlayers, upl, param_ind):
 
     return z_out, param_ind
 
+
+def nvp_neural_network_tf(z, params, mask_i, nlayers, upl, param_ind):
+    D = z.shape[0]
+
+    A_1 = np.reshape(params[param_ind:(param_ind+D*upl)], (upl, D))
+    param_ind += D*upl
+    b_1 = params[param_ind:(param_ind+upl)]
+    param_ind += upl
+    z_l = np.tanh(np.dot(A_1,(z*mask_i)) + b_1)
+
+    for l in range(1,nlayers):
+        A_l = np.reshape(params[param_ind:(param_ind+upl*upl)], (upl, upl))
+        param_ind += upl*upl
+        b_l = params[param_ind:(param_ind+upl)]
+        param_ind += upl
+        z_l = np.tanh(np.dot(A_l,z_l) + b_l)
+
+    A_out = np.reshape(params[param_ind:(param_ind+upl*D)], (D, upl))
+    param_ind += upl*D
+    b_out = params[param_ind:(param_ind+D)]
+    param_ind += D
+    z_out = np.dot(A_out, z_l) + b_out
+
+    return z_out, param_ind
 
 
 

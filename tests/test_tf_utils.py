@@ -1,8 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import approx_equal
-from tf_util.tf_util import AL_cost, log_grads, get_real_nvp_mask, \
-                            get_real_nvp_mask_list, get_real_nvp_num_params
+from tf_util.tf_util import AL_cost, log_grads
 
 DTYPE = tf.float64
 EPS = 1e-16
@@ -139,97 +138,8 @@ def test_log_grads():
     assert approx_equal(cost_grads2, cost_grads2_2_true, LG_EPS)
     return None
 
-def test_get_real_nvp_mask():
-    Ds = [8, 8, 8, 8, 8, 8, 8, 8, \
-          2, 2, \
-          3, 3, \
-          17, 17]
-    fs = [1, 1, 2, 2, 3, 3, 4, 4, \
-          1, 1, \
-          1, 1, \
-          1, 8]
-    firstOns = [True, False, True, False, True, False, True, False, \
-                True, False, \
-                True, False, \
-                True, True]
-    true_masks = [np.array([1, 1 ,1, 1, 0, 0, 0, 0]),
-                  np.array([0, 0, 0, 0, 1, 1, 1, 1]),
-                  np.array([1, 1, 0, 0, 1, 1, 0, 0]),
-                  np.array([0, 0, 1, 1, 0, 0, 1, 1]),
-                  np.array([1, 0, 1, 0, 1, 0, 1, 0]),
-                  np.array([0, 1, 0, 1, 0, 1, 0, 1]),
-                  np.array([1, 0, 1, 0, 1, 0, 1, 0]),
-                  np.array([0, 1, 0, 1, 0, 1, 0, 1]),
-                  np.array([1, 0]),
-                  np.array([0, 1]),
-                  np.array([1, 1, 0]),
-                  np.array([0, 0, 1]),
-                  np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
-                  np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1])]
-    
-    num_tests = len(Ds)
-    for i in range(num_tests):
-        D = Ds[i]
-        f = fs[i]
-        firstOn = firstOns[i]
-        mask = get_real_nvp_mask(D, f, firstOn)
-        true_mask = true_masks[i]
-        assert(approx_equal(mask, true_mask, EPS))
-
-    return None
-
-def test_get_real_nvp_mask_list():
-    mask_list = get_real_nvp_mask_list(5, 4)
-    mask_list_true = [np.array([1, 1 ,1, 0, 0]),
-                      np.array([0, 0, 0, 1, 1]),
-                      np.array([1, 0, 1, 0, 1]),
-                      np.array([0, 1, 0, 1, 0])]
-    for i in range(4):
-        approx_equal(mask_list[i], mask_list_true[i], EPS)
-
-
-    mask_list = get_real_nvp_mask_list(8, 6)
-    mask_list_true = [np.array([1, 1 ,1, 1, 0, 0, 0, 0]),
-                      np.array([0, 0, 0, 0, 1, 1, 1, 1]),
-                      np.array([1, 0, 1, 0, 1, 0, 1, 0]),
-                      np.array([0, 1, 0, 1, 0, 1, 0, 1]),
-                      np.array([1, 1, 0, 0, 1, 1, 0, 0]),
-                      np.array([0, 0, 1, 1, 0, 0, 1, 1])]
-    for i in range(6):
-        approx_equal(mask_list[i], mask_list_true[i], EPS)
-
-
-    mask_list = get_real_nvp_mask_list(16, 8)
-    mask_list_true = [np.array([1, 1 ,1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
-                      np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]),
-                      np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]),
-                      np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]),
-                      np.array([1, 1 ,1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0]),
-                      np.array([0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1]),
-                      np.array([1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0]),
-                      np.array([0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1])]
-    for i in range(8):
-        approx_equal(mask_list[i], mask_list_true[i], EPS)
-
-    return None
-
-def test_get_real_nvp_num_params():
-    Ds = [2, 2, 10, 10, 100]
-    num_masks = [1, 4, 2, 4, 4]
-    nlayers = [1, 2, 1, 4, 4]
-    upls = [10, 100, 10, 100, 100]
-    num_params_true = [120, 85600, 880, 260000, 404000]
-    for i in range(len(Ds)):
-        num_params_i = get_real_nvp_num_params(Ds[i], num_masks[i], nlayers[i], upls[i])
-        assert(num_params_i == num_params_true[i])
-
-    return None
-
 
 if __name__ == "__main__":
     np.random.seed(0)
     test_AL_cost()
     test_log_grads()
-    test_get_real_nvp_mask()
-    test_get_real_nvp_mask_list()
-    test_get_real_nvp_num_params()

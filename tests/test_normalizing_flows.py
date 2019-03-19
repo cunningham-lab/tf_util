@@ -25,7 +25,10 @@ from tf_util.normalizing_flows import (
     get_real_nvp_num_params)
 
 import os
-from tf_util.tf_util import get_real_nvp_mask_list, nvp_neural_network_np
+from tf_util.normalizing_flows import get_real_nvp_mask, \
+                            get_real_nvp_mask_list, \
+                            get_real_nvp_num_params, \
+                            nvp_neural_network_np
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
@@ -470,13 +473,25 @@ def tanh_flow(z, params):
 
 
 def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
-    num_params = get_num_flow_params(flow_class, dim)
+    if (flow_class == RealNVP):
+        num_masks = 4
+        nlayers = 4
+        upl = 20
+        opt_params = {'num_masks':num_masks, 'nlayers':nlayers, 'upl':upl}
+        eps = 1e-5
+    else:
+        opt_params = {}
+        eps = EPS
+    num_params = get_num_flow_params(flow_class, dim, opt_params)
     out_dim = get_flow_out_dim(flow_class, dim)
 
     params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
     inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
 
-    flow1 = flow_class(params1, inputs1)
+    if (flow_class == RealNVP):
+        flow1 = flow_class(params1, inputs1, num_masks, nlayers, upl)
+    else:
+        flow1 = flow_class(params1, inputs1)
     out1, log_det_jac1 = flow1.forward_and_jacobian()
 
     _params = np.random.normal(0.0, 1.0, (K, num_params))
@@ -491,9 +506,14 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
     for k in range(K):
         _params_k = _params[k, :]
         for j in range(n):
-            out_true[k, j, :], log_det_jac_true[k, j] = true_flow(
-                _inputs[k, j, :], _params_k
-            )
+            if (flow_class == RealNVP):
+                out_true[k, j, :], log_det_jac_true[k, j] = true_flow(
+                    _inputs[k, j, :], _params_k, num_masks, nlayers, upl,
+                )
+            else:
+                out_true[k, j, :], log_det_jac_true[k, j] = true_flow(
+                    _inputs[k, j, :], _params_k
+                )
 
     feed_dict = {params1: _params, inputs1: _inputs}
     with tf.Session() as sess:
@@ -506,12 +526,12 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
         if flow1.name == "RadialFlow":
             alpha, beta = sess.run([flow1.alpha, flow1.beta], feed_dict)
 
-    assert approx_equal(_out1, out_true, EPS)
-    assert approx_equal(_log_det_jac1, log_det_jac_true, EPS)
+    assert approx_equal(_out1, out_true, eps)
+    assert approx_equal(_log_det_jac1, log_det_jac_true, eps)
 
     # Ensure invertibility
     if flow1.name == "PlanarFlow":
-        num_inv_viols = np.sum(_wdotus < -(1 + EPS))
+        num_inv_viols = np.sum(_wdotus < -(1 + eps))
         assert num_inv_viols == 0
 
     elif flow1.name == "RadialFlow":
@@ -952,18 +972,125 @@ def test_tanh_flows():
     print("Tanh flows passed.")
     return None
 
-
 def test_real_nvp():
-    z = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-    D = z.shape[0]
+    # num parameterizations
+    K = 1
+    # number of inputs tested per parameterization
+    n = 100
+    eval_flow_at_dim(RealNVP, real_nvp, 8, K, n)
+    eval_flow_at_dim(RealNVP, real_nvp, 100, K, n)
+    return None
+"""
+def test_real_nvp():
+    D = 5
     num_masks = 2
     nlayers = 1
     upl = 10
     num_params = get_real_nvp_num_params(D, num_masks, nlayers, upl)
-    params = np.random.normal(0.0, 1.0, (num_params,))
-    out, ldj = real_nvp(z, params, num_masks, nlayers, upl)
+    out_dim = get_flow_out_dim(RealNVP, D)
+
+    params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
+    inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, D))
+
+    flow1 = RealNVP(params1, inputs1, num_masks, nlayers, upl)
+    out1, log_det_jac1 = flow1.forward_and_jacobian()
+
+    print()
+
+
+
+    #_params = np.random.normal(0.0, 1.0, (K, num_params))
+    #_inputs = np.random.normal(0.0, 1.0, (K, n, dim))
+
+    #out, ldj = real_nvp(z, params, num_masks, nlayers, upl)
+    return None"""
+
+
+def test_get_real_nvp_mask():
+    Ds = [8, 8, 8, 8, 8, 8, 8, 8, \
+          2, 2, \
+          3, 3, \
+          17, 17]
+    fs = [1, 1, 2, 2, 3, 3, 4, 4, \
+          1, 1, \
+          1, 1, \
+          1, 8]
+    firstOns = [True, False, True, False, True, False, True, False, \
+                True, False, \
+                True, False, \
+                True, True]
+    true_masks = [np.array([1, 1 ,1, 1, 0, 0, 0, 0]),
+                  np.array([0, 0, 0, 0, 1, 1, 1, 1]),
+                  np.array([1, 1, 0, 0, 1, 1, 0, 0]),
+                  np.array([0, 0, 1, 1, 0, 0, 1, 1]),
+                  np.array([1, 0, 1, 0, 1, 0, 1, 0]),
+                  np.array([0, 1, 0, 1, 0, 1, 0, 1]),
+                  np.array([1, 0, 1, 0, 1, 0, 1, 0]),
+                  np.array([0, 1, 0, 1, 0, 1, 0, 1]),
+                  np.array([1, 0]),
+                  np.array([0, 1]),
+                  np.array([1, 1, 0]),
+                  np.array([0, 0, 1]),
+                  np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+                  np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1])]
+    
+    num_tests = len(Ds)
+    for i in range(num_tests):
+        D = Ds[i]
+        f = fs[i]
+        firstOn = firstOns[i]
+        mask = get_real_nvp_mask(D, f, firstOn)
+        true_mask = true_masks[i]
+        assert(approx_equal(mask, true_mask, EPS))
+
     return None
 
+def test_get_real_nvp_mask_list():
+    mask_list = get_real_nvp_mask_list(5, 4)
+    mask_list_true = [np.array([1, 1 ,1, 0, 0]),
+                      np.array([0, 0, 0, 1, 1]),
+                      np.array([1, 0, 1, 0, 1]),
+                      np.array([0, 1, 0, 1, 0])]
+    for i in range(4):
+        approx_equal(mask_list[i], mask_list_true[i], EPS)
+
+
+    mask_list = get_real_nvp_mask_list(8, 6)
+    mask_list_true = [np.array([1, 1 ,1, 1, 0, 0, 0, 0]),
+                      np.array([0, 0, 0, 0, 1, 1, 1, 1]),
+                      np.array([1, 0, 1, 0, 1, 0, 1, 0]),
+                      np.array([0, 1, 0, 1, 0, 1, 0, 1]),
+                      np.array([1, 1, 0, 0, 1, 1, 0, 0]),
+                      np.array([0, 0, 1, 1, 0, 0, 1, 1])]
+    for i in range(6):
+        approx_equal(mask_list[i], mask_list_true[i], EPS)
+
+
+    mask_list = get_real_nvp_mask_list(16, 8)
+    mask_list_true = [np.array([1, 1 ,1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+                      np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]),
+                      np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]),
+                      np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]),
+                      np.array([1, 1 ,1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0]),
+                      np.array([0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1]),
+                      np.array([1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0]),
+                      np.array([0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1])]
+    for i in range(8):
+        approx_equal(mask_list[i], mask_list_true[i], EPS)
+
+    return None
+
+def test_get_real_nvp_num_params():
+    Ds = [2, 2, 10, 10, 100]
+    num_masks = [1, 4, 2, 4, 4]
+    nlayers = [1, 2, 1, 4, 4]
+    upls = [10, 100, 10, 100, 100]
+    num_params_true = [104, 84816, 880, 259280, 404000]
+    for i in range(len(Ds)):
+        num_params_i = get_real_nvp_num_params(Ds[i], num_masks[i], nlayers[i], upls[i])
+        assert(num_params_i == num_params_true[i])
+
+    return None
 
 if __name__ == "__main__":
 
@@ -971,7 +1098,6 @@ if __name__ == "__main__":
     test_get_num_flow_params()
     test_flow_param_initialization()
 
-    """
     test_affine_flows()
     test_elem_mult_flows()
     test_exp_flows()
@@ -981,6 +1107,9 @@ if __name__ == "__main__":
     test_shift_flows()
     test_simplex_bijection_flows()
     test_softplus_flows()
-    test_tanh_flows()"""
+    test_tanh_flows()
 
+    test_get_real_nvp_mask()
+    test_get_real_nvp_mask_list()
+    test_get_real_nvp_num_params()
     test_real_nvp()
