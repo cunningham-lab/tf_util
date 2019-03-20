@@ -47,14 +47,70 @@
 \begin{center}                  % Center the following lines
 {\Large Normalizing flows in tf\_utils} \\
 Sean Bittner \\
-February 8, 2019 \\
+March 20, 2019 \\
 \end{center}
 
-\textbf{Planar Flows}: \\
+\textbf{Planar flows} \cite{rezende2015variational}: \\
+See section A.1 of \cite{rezende2015variational} for reparameterization guaranteeing invertibility.
 \[f(z) = z + h(w^\top z + b)\]
-\[ \frac{d f(z)}{dz} = some expression \]
+\[\psi(z) = h'(w^\top z + b)w \]
+\[ \left| \frac{d f(z)}{dz} \right| =  \left| 1 + u^\top \psi (z) \right| \]
+We use $h = \tanh$.  The elements of $u$ and $b$ are always initialized to $0$, while the initial elements of $w$ are drawn from a glorot uniform initializer.
+
+\textbf{Radial flows} \cite{rezende2015variational}: \\
+See section A.2 of \cite{rezende2015variational} for reparameterization guaranteeing invertibility.
+\[f(z) = z + \beta h(\alpha, r) (z - z_0) \]
+\[ \left| \frac{d f(z)}{dz} \right| = \left[1 + \beta h(\alpha, r)\right]^{d-1} \left[ 1 + \beta h(\alpha, r) + \beta h'(\alpha, r)r) \right] \]
+where $h(\alpha, r) = \frac{1}{\alpha + r}$, $r = \left| z - z_0 \right|$, and $\alpha > 0$.  A log-parameterization of $\alpha$ is used to enforce the constraint.  $\log(\alpha)$, $\beta$, and $z_0$ all have the glorot uniform initializer.
+
+\textbf{Real NVP} \cite{dinh2016density}: \\
+In a real NVP (non-volume preserving) normalizing flow, there is a sequence of ``masking" layers which parameterize bijective transformations until an output is produced.  In each ``masking" layer, a set of entries are chosen to be passed unchanged to the next masking layer.  The remaining entries are scaled and shifted by arbitrary continuous differentiable functions of the unchanged elements.
+
+For $b \in \left[0, 1\right]^D$, let $x_{I_b}$ be the elements of arbitrary vector $x \in \mathcal{R}^D$, which have a 1 in the corresponding index of $b$.  Similarly, let $x_{I_b^C}$ be the remaining elements of $x$ (those with corresponding indices of $b$ equal to 0).  In a single masking layer of real NVP, we have the following transformation for mask $b$:
+\[f(z)_{I_b} = z_{I_b}\]
+\[f(z)_{I_b^C} = z_{I_b^C} \exp(s(z_{I_b})) + t(z_{I_b}) \]
+Ordering the elements of $z$ such that the passed elements ($b_i=1$) are at the early indices, and letting $d = \sum_i b_i$, 
+\[\frac{d f(z)}{d z} = \begin{bmatrix} \mathbb{I}_d & 0 \\ \frac{d f(z)_{I_b^C}}{d z_{I_b}} & \text{diag} (\exp \left[s(z_{I_b}) \right]) \end{bmatrix} \]
+The log determinant jacobian of this masking layer is then
+\[ \frac{d f(z)}{d z} = \sum_j s(z_{I_b})_j \]
+
+The real NVP normalizing flow is constructed by a cascade of different masks.  In common practice, a mask of a particular pattern is always followed by it's complement pattern.  We adopt this pattern, and thus, our real NVP flows always have an even number of masks.  We identify masks by their number of elements - $D$, the frequency of bit flip - $f$, and state of the first element.  Below are some examples:
+
+\begin{center}
+\begin{tabular}{c | c | c | c}
+D & f & first elem & mask \\
+8 & 1 & 1 & $\begin{bmatrix} 1 & 1 & 1 & 1 & 0 & 0 & 0 & 0 \end{bmatrix}^\top$ \\
+8 & 1 & 0 & $\begin{bmatrix} 0 & 0 & 0 & 0 & 1 & 1 & 1 & 1 \end{bmatrix}^\top$ \\
+8 & 4 & 1 & $\begin{bmatrix} 1 & 0 & 1 & 0 & 1 & 0 & 1 & 0 \end{bmatrix}^\top$ \\
+\end{tabular}
+\end{center}
+
+For a selection of $2k$ masks for a $D$ dimensional distribution, we use the following sequence of masks:
+$f=1$, $b_1=1$ \\
+$f=1$, $b_1=0$ \\
+$f=\frac{D}{2}$, $b_1=1$ \\
+$f=\frac{D}{2}$, $b_1=0$ \\
+$f=2$, $b_1=1$ \\
+$f=2$, $b_1=0$ \\
+$f=\frac{D}{4}$, $b_1=1$ \\
+$f=\frac{D}{4}$, $b_1=0$ \\
+$f=4$, $b_1=1$ \\
+$f=4$, $b_1=0$ \\
+...
+
+The parametization of functions $s$ and $t$ are $L$-layer fully-connected neural networks with $U$-units per layer.
+
+\textbf{Elementwise multiplication flows}: \\
+\[ f(z) = a \circ z \]
+\[\log (\left| \frac{d f(z)}{dz} \right|) = \sum_{i=1}^D \log (|a_i|) \]
+
+\textbf{Shift flows}: \\
+\[ f(z) = z + b \]
+\[\log (\left| \frac{d f(z)}{dz} \right|) = 0\]
 
 \textbf{Cholesky Product Flows}: \\
+We introduce a normalizing flow for constructing positive semi-definite matrices.  This is done by parameterizing the entries of the Cholesky factor, with entries exponentiated along the diagonal.
+ 
 \[ f(z) = \text{vec}(L(z)L(z)^\top) \]
 
 \[L(z) = \begin{bmatrix} e^{z_1} & 0 & ... &  0 \\ z_2 & e^{z_3} &  & \\ z_4 & z_5 & e^{z_6} &  & \\ ... & & & \\ \end{bmatrix}\]
@@ -75,5 +131,7 @@ February 8, 2019 \\
 
 \[\log(\begin{vmatrix} \frac{d f(z)}{dz} \end{vmatrix}) = \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \frac{dL(z)}{dz} \end{vmatrix}) = \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \end{vmatrix} \begin{vmatrix} \frac{dL(z)}{dz} \end{vmatrix}) =  \log(\begin{vmatrix} \frac{d \text{vec}(\Sigma(z))}{dL(z)} \end{vmatrix}) + \log( \begin{vmatrix} \frac{dL(z)}{dz} \end{vmatrix}) \]
 
+\bibliography{tf_util}
+\bibliographystyle{unsrt}
 \end{document}
 
