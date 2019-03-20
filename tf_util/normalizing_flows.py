@@ -892,6 +892,15 @@ class RealNVP(NormFlow):
         self.num_masks = num_masks
         self.nlayers = nlayers
         self.upl = upl
+        self.s_param_ind_by_mask = []
+        self.t_param_ind_by_mask = []
+
+        # get list of masks
+        masks = get_real_nvp_mask_list(self.dim, self.num_masks)
+        # add two broadcasting dimensions to the front
+        for i in range(self.num_masks):
+            masks[i] = np.expand_dims(np.expand_dims(masks[i], 0), 0)
+        self.masks = masks
 
     def forward_and_jacobian(self,):
         """Perform the flow operation and compute the log-abs-det-jac.
@@ -904,23 +913,19 @@ class RealNVP(NormFlow):
         """
         z = self.inputs
 
-        # get list of masks
-        masks = get_real_nvp_mask_list(self.dim, self.num_masks)
-        # add two broadcasting dimensions to the front
-        for i in range(self.num_masks):
-            masks[i] = np.expand_dims(np.expand_dims(masks[i], 0), 0)
-
-
         # construct functions for each mask
         param_ind = 0
         z_i = z
         log_det_jacs = []
         for i in range(self.num_masks):
-            mask_i = masks[i]
+            mask_i = self.masks[i]
 
+            self.s_param_ind_by_mask.append(param_ind)
             s, param_ind = nvp_neural_network_tf(z_i, self.params, mask_i, \
                                                  self.nlayers, self.upl, \
                                                  param_ind)
+
+            self.t_param_ind_by_mask.append(param_ind)
             t, param_ind = nvp_neural_network_tf(z_i, self.params, mask_i, \
                                                  self.nlayers, self.upl, \
                                                  param_ind)
@@ -934,6 +939,43 @@ class RealNVP(NormFlow):
         log_det_jacobian = sum(log_det_jacs)
 
         return f_z, log_det_jacobian
+
+    def inverse(self, z):
+        """Invert sample z to random variable w.
+
+        # Arguments 
+            z (tf.tensor): [K, self.num_params] Tensor containing 
+                                     K parameterizations of the layer.
+        # Returns 
+            f_inv_z (tf.tensor): [K, batch_size, self.dim] Result of operation
+
+        """ 
+        if len(self.s_param_ind_by_mask)==0:
+            print('Error: must call RealNVP.forward_and_jacobian() before RealNVP.inverse().')
+            raise EnvironmentError
+
+        # construct functions for each mask
+        z_i = z
+        for i in range(self.num_masks-1, -1, -1):
+            mask_i = self.masks[i]
+
+            s_param_ind = self.s_param_ind_by_mask[i]
+            s, _ = nvp_neural_network_tf(z_i, self.params, mask_i, \
+                                         self.nlayers, self.upl, \
+                                         s_param_ind)
+
+            t_param_ind = self.t_param_ind_by_mask[i]
+            t, _ = nvp_neural_network_tf(z_i, self.params, mask_i, \
+                                         self.nlayers, self.upl, \
+                                         t_param_ind)
+
+            z_i = (mask_i)*z_i + (1-mask_i)*(z_i - t)*tf.exp(-s)
+
+        f_inv_z = z_i
+
+        return f_inv_z
+
+
 
 def get_real_nvp_mask(D, f, first_on=True):
     assert(f <= (D//2))

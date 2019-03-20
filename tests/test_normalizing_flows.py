@@ -29,6 +29,7 @@ from tf_util.normalizing_flows import get_real_nvp_mask, \
                             get_real_nvp_mask_list, \
                             get_real_nvp_num_params, \
                             nvp_neural_network_np
+import matplotlib.pyplot as plt
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
@@ -519,25 +520,37 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
     with tf.Session() as sess:
         _out1, _log_det_jac1 = sess.run([out1, log_det_jac1], feed_dict)
 
+        # Ensure invertibility
         if flow1.name == "PlanarFlow":
             wdotus = tf.matmul(tf.expand_dims(flow1.w, 1), tf.expand_dims(flow1.u, 2))
             _wdotus = sess.run(wdotus, feed_dict)
+            num_inv_viols = np.sum(_wdotus < -(1 + eps))
+            assert num_inv_viols == 0
 
+        # Ensure invertibility
         if flow1.name == "RadialFlow":
             alpha, beta = sess.run([flow1.alpha, flow1.beta], feed_dict)
+            for k in range(K):
+                assert -alpha[k, 0] <= beta[k, 0]
+
+        """# Check known inverse
+                                if flow1.name == "RealNVP":
+                                    f_inv_out1 = flow1.inverse(out1)
+                                    _f_inv_out1 = sess.run(f_inv_out1, feed_dict)
+                                    _inputs_vec = np.reshape(_inputs, (K*n*dim,))
+                                    _f_inv_out1_vec = np.reshape(_f_inv_out1, (K*n*dim,))
+                                    r = np.corrcoef(_inputs_vec, _f_inv_out1_vec)
+                                    print('r', r[0,1])
+                                    if (r[0,1] < .99):
+                                        plt.figure()
+                                        plt.scatter(_inputs, _f_inv_out1)
+                                        plt.ylim([-5, 5])
+                                        plt.show()
+                                    assert(r[0,1] > .99)"""
 
     assert approx_equal(_out1, out_true, eps)
     assert approx_equal(_log_det_jac1, log_det_jac_true, eps)
-
-    # Ensure invertibility
-    if flow1.name == "PlanarFlow":
-        num_inv_viols = np.sum(_wdotus < -(1 + eps))
-        assert num_inv_viols == 0
-
-    elif flow1.name == "RadialFlow":
-        for k in range(K):
-            assert -alpha[k, 0] <= beta[k, 0]
-
+        
     return None
 
 
@@ -980,31 +993,6 @@ def test_real_nvp():
     eval_flow_at_dim(RealNVP, real_nvp, 8, K, n)
     eval_flow_at_dim(RealNVP, real_nvp, 100, K, n)
     return None
-"""
-def test_real_nvp():
-    D = 5
-    num_masks = 2
-    nlayers = 1
-    upl = 10
-    num_params = get_real_nvp_num_params(D, num_masks, nlayers, upl)
-    out_dim = get_flow_out_dim(RealNVP, D)
-
-    params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
-    inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, D))
-
-    flow1 = RealNVP(params1, inputs1, num_masks, nlayers, upl)
-    out1, log_det_jac1 = flow1.forward_and_jacobian()
-
-    print()
-
-
-
-    #_params = np.random.normal(0.0, 1.0, (K, num_params))
-    #_inputs = np.random.normal(0.0, 1.0, (K, n, dim))
-
-    #out, ldj = real_nvp(z, params, num_masks, nlayers, upl)
-    return None"""
-
 
 def test_get_real_nvp_mask():
     Ds = [8, 8, 8, 8, 8, 8, 8, 8, \
