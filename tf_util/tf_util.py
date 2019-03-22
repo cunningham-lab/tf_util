@@ -15,23 +15,9 @@
 # ==============================================================================
 import tensorflow as tf
 import numpy as np
-from tf_util.flows import (
-    AffineFlowLayer,
-    PlanarFlowLayer,
-    SimplexBijectionLayer,
-    CholProdLayer,
-    StructuredSpinnerLayer,
-    TanhLayer,
-    ExpLayer,
-    SoftPlusLayer,
-    GP_EP_CondRegLayer,
-    GP_Layer,
-    AR_Layer,
-    VAR_Layer,
-    FullyConnectedFlowLayer,
-    ElemMultLayer,
-)
+
 from tf_util.normalizing_flows import (
+    PlanarFlow,
     ShiftFlow,
     ElemMultFlow,
     get_flow_class,
@@ -94,7 +80,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
     flow_class = get_flow_class(arch_dict["TIF_flow_type"])
     for i in range(arch_dict["repeats"]):
-        if (flow_class == PlanarFlowLayer):
+        if (flow_class == PlanarFlow):
             flow_layer = flow_class(params[ind], Z)
             Z, log_det_jacobian = flow_layer.forward_and_jacobian()
         elif (flow_class == RealNVP):
@@ -104,6 +90,9 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
             upl = real_nvp_arch['upl']
             flow_layer = flow_class(params[ind], Z, num_masks, real_nvp_layers, upl)
             Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+        else:
+            print('uh oh')
+            raise NotImplementedError()
         sum_log_det_jacobians += log_det_jacobian
         flow_layers.append(flow_layer)
         ind += 1
