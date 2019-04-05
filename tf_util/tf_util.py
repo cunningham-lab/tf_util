@@ -576,8 +576,7 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
     half_M = M // 2
     H = -tf.reduce_mean(log_q_z)
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
-    #cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
-    cost_terms_1 = tf.tensordot(Lambda, R, axes=[0, 0])
+    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
     cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
     grad_func1 = tf.gradients(cost_terms_1, all_params)
 
