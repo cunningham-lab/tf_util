@@ -166,40 +166,6 @@ def check_init(initdir):
         check_passed = True
     return check_passed
 
-def initialize_gauss_nf(D, arch_dict, sigma_init, random_seed, gauss_initdir):
-    fam_class = family_from_str("normal")
-    family = fam_class(D)
-    params = {
-        "mu": np.zeros((D,)),
-        "Sigma": np.square(sigma_init) * np.eye(D),
-        "dist_seed": 0,
-    }
-    n = 1000
-    lr_order = -3
-    check_rate = 100
-    max_iters = 5000
-    converged = False
-    while (not converged):
-        converged = train_nf(
-            family,
-            params,
-            arch_dict,
-            n,
-            lr_order,
-            random_seed,
-            min_iters,
-            max_iters,
-            check_rate,
-            None,
-            profile=False,
-            savedir=gauss_initdir,
-        )
-        if converged:
-            print("done initializing gaussian NF")
-        else:
-            max_iters = 5*max_iters
-    return converged
-
 
 def load_nf_init(initdir, arch_dict):
     initfile = np.load(initdir + "theta.npz")
