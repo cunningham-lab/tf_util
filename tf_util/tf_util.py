@@ -15,6 +15,7 @@
 # ==============================================================================
 import tensorflow as tf
 import numpy as np
+import os
 
 from tf_util.normalizing_flows import (
     PlanarFlow,
@@ -120,17 +121,84 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     return Z, sum_log_det_jacobians, flow_layers
 
 
-def get_initdir(D, arch_dict, sigma, random_seed):
+def get_initdir(system, arch_dict, sigma, random_seed):
     # set file I/O stuff
-    initdir = "data/inits/"
+    prefix = "data/inits/"
     archstring = get_archstring(arch_dict)
-    initdir = initdir + "D=%d_%s_sigma=%.2f_rs=%d/" % (
-        D,
-        archstring,
-        sigma,
-        random_seed,
-    )
+
+    if ("bounds" in system.behavior.keys()):
+        # when there are inequalities, need system and behavior-specific init
+        sysparams = system.free_params[0]
+        num_free_params = len(system.free_params)
+        if num_free_params > 1:
+            for i in range(1, num_free_params):
+                sysparams += "_%s" % system.free_params[i]
+
+        initdir = prefix + "%s_%s_%s_flow=%s_sigma=%.2f_rs=%d/" % (
+            system.name,
+            sysparams,
+            system.behavior_str,
+            archstring,
+            sigma,
+            random_seed,
+        )
+    else:
+        initdir = prefix + "D=%d_%s_sigma=%.2f_rs=%d/" % (
+                    system.D,
+                    archstring,
+                    sigma,
+                    random_seed,
+                    )
     return initdir
+
+def check_init(initdir):
+    initfname = initdir + "theta.npz"
+    resfname = initdir + "opt_info.npz"
+    check_passed = False
+    if os.path.exists(initfname):
+        resfile = np.load(resfname)
+        # Make sure it has converged
+        if not resfile["converged"]:
+            print("Error: Found init file, but optimiation has not converged.")
+            print("Tip: Consider adjusting approximation architecture or min_iters.")
+            print("Delete the init directory if optimization was killed early.")
+            exit()
+        check_passed = True
+    return check_passed
+
+def initialize_gauss_nf(D, arch_dict, sigma_init, random_seed, gauss_initdir):
+    fam_class = family_from_str("normal")
+    family = fam_class(D)
+    params = {
+        "mu": np.zeros((D,)),
+        "Sigma": np.square(sigma_init) * np.eye(D),
+        "dist_seed": 0,
+    }
+    n = 1000
+    lr_order = -3
+    check_rate = 100
+    max_iters = 5000
+    converged = False
+    while (not converged):
+        converged = train_nf(
+            family,
+            params,
+            arch_dict,
+            n,
+            lr_order,
+            random_seed,
+            min_iters,
+            max_iters,
+            check_rate,
+            None,
+            profile=False,
+            savedir=gauss_initdir,
+        )
+        if converged:
+            print("done initializing gaussian NF")
+        else:
+            max_iters = 5*max_iters
+    return converged
 
 
 def load_nf_init(initdir, arch_dict):
@@ -570,13 +638,16 @@ def Lop(f, x, v):
     return gradients(f, x, grad_ys=v)
 
 
-def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
+def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True):
     T_x_shape = tf.shape(T_x_mu_centered)
     M = T_x_shape[1]
     half_M = M // 2
     H = -tf.reduce_mean(log_q_z)
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
-    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
+    if entropy:
+        cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
+    else:
+        cost_terms_1 = tf.tensordot(Lambda, R, axes=[0, 0])
     cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
     grad_func1 = tf.gradients(cost_terms_1, all_params)
 
