@@ -29,7 +29,6 @@ from tf_util.normalizing_flows import get_real_nvp_mask, \
                             get_real_nvp_mask_list, \
                             get_real_nvp_num_params, \
                             nvp_neural_network_np
-import matplotlib.pyplot as plt
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
@@ -239,7 +238,7 @@ def radial_flow(z, params):
     num_params = params.shape[0]
     assert num_params == get_num_flow_params(RadialFlow, D)
 
-    alpha = params[0]
+    alpha = np.exp(params[0])
     _beta = params[1]
     z0 = params[2:]
 
@@ -498,9 +497,6 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
     _params = np.random.normal(0.0, 1.0, (K, num_params))
     _inputs = np.random.normal(0.0, 1.0, (K, n, dim))
 
-    if flow1.name == "RadialFlow":
-        _params[:, 0] = np.abs(_params[:, 0]) + 0.001
-
         # compute ground truth
     out_true = np.zeros((K, n, out_dim))
     log_det_jac_true = np.zeros((K, n))
@@ -533,20 +529,7 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
             for k in range(K):
                 assert -alpha[k, 0] <= beta[k, 0]
 
-        """# Check known inverse
-                                if flow1.name == "RealNVP":
-                                    f_inv_out1 = flow1.inverse(out1)
-                                    _f_inv_out1 = sess.run(f_inv_out1, feed_dict)
-                                    _inputs_vec = np.reshape(_inputs, (K*n*dim,))
-                                    _f_inv_out1_vec = np.reshape(_f_inv_out1, (K*n*dim,))
-                                    r = np.corrcoef(_inputs_vec, _f_inv_out1_vec)
-                                    print('r', r[0,1])
-                                    if (r[0,1] < .99):
-                                        plt.figure()
-                                        plt.scatter(_inputs, _f_inv_out1)
-                                        plt.ylim([-5, 5])
-                                        plt.show()
-                                    assert(r[0,1] > .99)"""
+        # Should check known inverse
 
     assert approx_equal(_out1, out_true, eps)
     assert approx_equal(_log_det_jac1, log_det_jac_true, eps)
