@@ -969,12 +969,13 @@ def test_tanh_flows():
     return None
 
 def test_real_nvp():
+    np.random.seed(0)
     # num parameterizations
     K = 1
     # number of inputs tested per parameterization
     n = 100
     eval_flow_at_dim(RealNVP, real_nvp, 8, K, n)
-    eval_flow_at_dim(RealNVP, real_nvp, 100, K, n)
+    eval_flow_at_dim(RealNVP, real_nvp, 50, K, n)
     return None
 
 def test_get_real_nvp_mask():
@@ -1052,12 +1053,14 @@ def test_get_real_nvp_mask_list():
     return None
 
 def test_get_real_nvp_num_params():
-    Ds = [2, 2, 10, 10, 100]
+    np.random.seed(0)
+    Ds = [2, 2, 10, 10, 50]
     num_masks = [1, 4, 2, 4, 4]
     nlayers = [1, 2, 1, 4, 4]
     upls = [10, 100, 10, 100, 100]
-    num_params_true = [104, 84816, 880, 259280, 404000]
+    num_params_true = [104, 84816, 880, 259280, 323600]
     for i in range(len(Ds)):
+        print(Ds[i])
         num_params_i = get_real_nvp_num_params(Ds[i], num_masks[i], nlayers[i], upls[i])
         assert(num_params_i == num_params_true[i])
 
