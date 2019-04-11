@@ -151,7 +151,12 @@ def get_flow_param_inits(flow_class, D, opt_params={}):
         dims = [D, D, 1]
         return inits, dims
     elif flow_class == RadialFlow:
-        raise NotImplementedError()
+        inits = [
+            tf.glorot_uniform_initializer(),
+            tf.glorot_uniform_initializer(),
+            tf.glorot_uniform_initializer(),
+        ]
+        dims = [1, 1, D]
     elif flow_class == ShiftFlow:
         return [tf.glorot_uniform_initializer()], [D]
     elif flow_class == SimplexBijectionFlow:
@@ -604,7 +609,7 @@ class RadialFlow(NormFlow):
         """
         super().__init__(params, inputs)
         self.name = "RadialFlow"
-        self.alpha = params[:, 0:1]
+        self.alpha = tf.exp(params[:, 0:1])
         self._beta = params[:, 1:2]
         self.z0 = params[:, 2:]
 
