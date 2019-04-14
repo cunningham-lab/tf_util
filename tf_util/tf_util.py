@@ -604,7 +604,25 @@ def Lop(f, x, v):
     return gradients(f, x, grad_ys=v)
 
 
-def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True):
+def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True, I_x=None):
+    """Computes tensorflow gradients of an augmented lagrangian cost.
+
+        Args:
+            log_q_z (tf.tensor): [1,M] Log density of each sample z.
+            T_x_mu_centered (tf.tensor): [1,M,|T|] Mean-centered suff stats.
+            Lambda (tf.tensor) [|T|] Augmented Lagrangian parameters.
+            c (tf.tensor) [()] Augmented Lagrangian parameter.
+            all_params (list) Parameters to take gradients with respect to.
+            entropy (bool) If true, optimize entropy.
+            I_x (tf.tensor) [1,M,|I|] Inequality constraint function values.
+
+
+        Returns:
+            cost (tf.Tensor): [()] The Augmented Lagrangian cost.
+            grads (list): List of gradients.
+            entropy (tf.tensor): [()] The total number of parameters in the layer.
+
+    """
     T_x_shape = tf.shape(T_x_mu_centered)
     M = T_x_shape[1]
     half_M = M // 2
@@ -618,34 +636,61 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True):
     grad_func1 = tf.gradients(cost_terms_1, all_params)
 
     T_x_1 = T_x_mu_centered[0, :half_M, :]
+    T_x_1_mean = tf.reduce_mean(T_x_1, 0)
     T_x_2 = T_x_mu_centered[0, half_M:, :]
-    grad_con = Lop(T_x_1, all_params, T_x_2)
-    grads = []
-    nparams = len(all_params)
-    for i in range(nparams):
-        grads.append(grad_func1[i] + c * grad_con[i] / tf.cast(half_M, DTYPE))
-
-    return cost, grads, H
-
-
-"""def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params):
-    T_x_shape = tf.shape(T_x_mu_centered)
-    M = T_x_shape[1]
-    H = -tf.reduce_mean(log_q_z)
-    R = tf.reduce_mean(T_x_mu_centered[0], 0)
-    cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
-    cost = cost_terms_1 + (c / 2.0) * tf.reduce_sum(tf.square(R))
-    grad_func1 = tf.gradients(cost_terms_1, all_params)
-
-    T_x_1 = T_x_mu_centered[0, : (M // 2), :]
-    T_x_2 = T_x_mu_centered[0, (M // 2) :, :]
-    grad_con = Lop(T_x_1, all_params, T_x_2)
+    T_x_2_mean = tf.reduce_mean(T_x_2, 0)
+    grad_con = Lop(T_x_1_mean, all_params, T_x_2_mean)
     grads = []
     nparams = len(all_params)
     for i in range(nparams):
         grads.append(grad_func1[i] + c * grad_con[i])
 
-    return cost, grads, H"""
+    if (I_x is not None):
+        I_x_mean = tf.reduce_mean(I_x[0], axis=0)
+        ineq_con_grad = tf.gradients(I_x_mean, all_params)
+        for i in range(nparams):
+            grads[i] += ineq_con_grad[i]
+
+    return cost, grads, H
+
+
+def max_barrier(u, alpha, t):
+    """Log barrier penalty for stats u, bound alpha, and parameter t.
+
+        Enforces a maximum alpha on the statistic u.
+
+        f(u ; alpha, t) = -(1/t)log(-u + alpha)
+
+        Args:
+            u (tf.tensor): [1,M] Batch statistics.
+            alpha (float): The desired bound.
+            t (float): Greater t, better approximation of indicator.
+
+        Returns:
+            f_u (tf.tensor): [1,M] f(u; alpha, t) 
+
+    """
+
+    return -(1.0/t)*tf.log(-u + alpha)
+
+def min_barrier(u, alpha, t):
+    """Log barrier penalty for stats u, bound alpha, and parameter t.
+
+        Enforces a minimum alpha on the statistic u.
+
+        f(u ; alpha, t) = -(1/t)log(u - alpha)
+
+        Args:
+            u (tf.tensor): [1,M] Batch statistics.
+            alpha (float): The desired bound.
+            t (float): Greater t, better approximation of indicator.
+
+        Returns:
+            f_u (tf.tensor): [1,M] f(u; alpha, t) 
+
+    """
+
+    return -(1.0/float(t))*tf.log(u - float(alpha))
 
 
 def load_nf_vars(initdir):

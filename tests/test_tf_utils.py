@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import approx_equal
-from tf_util.tf_util import AL_cost, log_grads
+from tf_util.tf_util import AL_cost, log_grads, max_barrier, min_barrier
 
 DTYPE = tf.float64
 EPS = 1e-16
@@ -9,7 +9,7 @@ EPS = 1e-16
 n = 100
 
 
-def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats):
+def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats, entropy=True, I_x = None):
     num_params = len(all_params)
 
     neg_H = tf.reduce_mean(log_q_z)
@@ -32,52 +32,139 @@ def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats
             dcterm_dtheta_i += T_x_mean_1_grads[j][i] * T_x_mean_2[j]
         dcterm_dtheta.append(c * dcterm_dtheta_i)
 
+    if (I_x is not None):
+        dIterm_dtheta = tf.gradients(tf.reduce_mean(I_x, [0,1]), all_params)
+
+
     grads = []
     for i in range(num_params):
-        sum_grad = dneg_H_dtheta[i] + dlambdaterm_dtheta[i] + dcterm_dtheta[i]
+        sum_grad = dlambdaterm_dtheta[i] + dcterm_dtheta[i]
+        if entropy:
+            sum_grad += dneg_H_dtheta[i] 
+        if (I_x is not None):
+            sum_grad += dIterm_dtheta[i] 
         grads.append(sum_grad)
 
     return 0.0, grads, -neg_H
 
+def _max_barrier(u, alpha, t):
+    return -(1.0/t)*np.log(-u + alpha)
+
+def _min_barrier(u, alpha, t):
+    return -(1.0/t)*np.log(u - alpha)
 
 def test_AL_cost():
-    D = 3
+    D = 10
+    num_rand_draws = 10
+
     W = tf.placeholder(dtype=DTYPE, shape=(1, n, D))
-    a = tf.get_variable("a", shape=(D,), dtype=DTYPE)
-    b = tf.get_variable("b", shape=(1,), dtype=DTYPE)
+    A1 = tf.get_variable("A1", shape=(1,D,D), dtype=DTYPE)
+    b1 = tf.get_variable("b1", shape=(1,D,1), dtype=DTYPE)
+    all_params1 = tf.trainable_variables()
+    A2 = tf.get_variable("A2", shape=(1,D,D), dtype=DTYPE)
+    b2 = tf.get_variable("b2", shape=(1,D,1), dtype=DTYPE)
+    all_params2 = tf.trainable_variables()
 
     all_params = tf.trainable_variables()
 
-    log_q_z = tf.tensordot(W, a, [[2], [0]]) + b[0]
-    H = -tf.reduce_mean(log_q_z)
+    z1 = tf.matmul(A1, tf.transpose(W, [0, 2, 1])) + b1
+    z2 = tf.matmul(A2, z1) + b2
 
-    mu = np.array([1.0, 2.0, 3.0])
-    T_x = W + tf.expand_dims(tf.expand_dims(a, 0), 0) - b
-    T_x_mu_centered = T_x - np.expand_dims(np.expand_dims(mu, 0), 0)
+    # Not the actual log_q_z, just an arbitrary function for testing.
+    log_q_z1 = tf.log(tf.linalg.det(A1))*np.ones((1,n)) + tf.reduce_sum(b1)
+    log_q_z2 = tf.log(tf.linalg.det(A2))*np.ones((1,n)) + tf.reduce_sum(b2) + log_q_z1
 
-    grad_H_a = tf.gradients(H, a)
+    mu1 = np.random.normal(0.0, 1.0, (1, 1, 2*D))
+    z1 = tf.transpose(z1, [0, 2, 1]) # [1, n, |T(x)|]
+    T_x1 = tf.concat((z1, tf.square(z1)), axis=2)
+    T_x_mu_centered1 = T_x1 - mu1
+    t = 1e2
+    I_x1 = tf.stack((min_barrier(T_x1[:,:,0], -1e6, t), max_barrier(T_x1[:,:,1], 1e6, t)), axis=2)
 
-    Lambda = tf.placeholder(dtype=DTYPE, shape=(D,))
+    mu2 = np.random.normal(0.0, 1.0, (1, 1, 2*D))
+    z2 = tf.transpose(z2, [0, 2, 1]) # [1, n, |T(x)|]
+    T_x2 = tf.concat((z2, tf.square(z2)), axis=2)
+    T_x_mu_centered2 = T_x2 - mu2
+    I_x2 = tf.stack((min_barrier(T_x2[:,:,0], -1e6, t), max_barrier(T_x2[:,:,1], 1e6, t)), axis=2)
+
+    Lambda = tf.placeholder(dtype=DTYPE, shape=(2*D,))
     c = tf.placeholder(dtype=DTYPE, shape=())
 
-    costs_true, grads_true, H_true = aug_lag_cost(
-        log_q_z, T_x_mu_centered, Lambda, c, all_params, 3
-    )
+    log_q_zs = [log_q_z1, log_q_z2]
+    T_x_mu_centereds = [T_x_mu_centered1, T_x_mu_centered2]
+    all_params_list = [all_params1, all_params2]
+    I_xs = [I_x1, I_x2]
+    for i in range(len(log_q_zs)):
+        log_q_z = log_q_zs[i]
+        T_x_mu_centered = T_x_mu_centereds[i]
+        all_params = all_params_list[i]
+        I_x = I_xs[i]
+        for entropy in [True, False]:
+            for _I_x in [None, I_x]:
+                costs_true, grads_true, H_true = aug_lag_cost(
+                    log_q_z, T_x_mu_centered, Lambda, c, all_params, 2*D, entropy=entropy, I_x=_I_x
+                )
 
-    costs, grads, H = AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params)
+                costs, grads, H = AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=entropy, I_x=_I_x)
 
-    _lambda = np.zeros((3,))
-    # _lambda = np.array([0.2, -0.1, 0.5])
-    _c = 1.0
-    _W = np.random.normal(0.0, 1.0, (1, n, D))
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        _grads_true, _grads = sess.run(
-            [grads_true, grads], {W: _W, Lambda: _lambda, c: _c}
-        )
+                with tf.Session() as sess:
+                    sess.run(tf.global_variables_initializer())
+                    for j in range(num_rand_draws):
+                        _lambda = np.random.normal(0.0, 1.0, (2*D,))
+                        _c = np.random.normal(0.0, 1.0)
+                        _W = np.random.normal(0.0, 1.0, (1, n, D))
+                        _grads_true, _grads = sess.run(
+                            [grads_true, grads], {W: _W, Lambda: _lambda, c: _c}
+                        )
+                        _H_true, _H = sess.run(
+                            [H_true, H], {W: _W, Lambda: _lambda, c: _c}
+                        )
 
-    for i in range(len(all_params)):
-        assert approx_equal(_grads_true[i], _grads[i], EPS)
+                    for k in range(len(all_params)):
+                        assert approx_equal(_grads_true[k], _grads[k], EPS)
+
+
+    return None
+
+
+def test_max_barrier():
+    M = 1000
+    u = tf.placeholder(dtype=tf.float64, shape=(1, M))
+    alphas = [-1e10, 0.0, 1.0, 1e10]
+    ts = [1e-10, 1.0, 1e10, 1e20]
+    num_alpha = len(alphas)
+    num_ts = len(ts)
+    for i in range(num_alpha):
+        alpha = alphas[i]
+        _u = np.random.uniform(-1e20, alpha, (1,M))
+        _u[0,-1] = alpha-(1.0e-4)
+        for j in range(num_ts):
+            t = ts[j]
+            I_x = max_barrier(u, alpha, t)
+            I_x_true = _max_barrier(_u, alpha, t)
+            with tf.Session() as sess:
+                _I_x = sess.run(I_x, {u:_u})
+            assert(approx_equal(_I_x, I_x_true, EPS))
+    return None
+
+def test_min_barrier():
+    M = 1000
+    u = tf.placeholder(dtype=tf.float64, shape=(1, M))
+    alphas = [-1e10, 0.0, 1.0, 1e10]
+    ts = [1e-10, 1.0, 1e10, 1e20]
+    num_alpha = len(alphas)
+    num_ts = len(ts)
+    for i in range(num_alpha):
+        alpha = alphas[i]
+        _u = np.random.uniform(alpha, 1.0e20, (1,M))
+        _u[0,-1] = alpha+(1.0e-4)
+        for j in range(num_ts):
+            t = ts[j]
+            I_x = min_barrier(u, alpha, t)
+            I_x_true = _min_barrier(_u, alpha, t)
+            with tf.Session() as sess:
+                _I_x = sess.run(I_x, {u:_u})
+            assert(approx_equal(_I_x, I_x_true, EPS))
     return None
 
 def unroll_params(param_list):
@@ -142,4 +229,8 @@ def test_log_grads():
 if __name__ == "__main__":
     np.random.seed(0)
     test_AL_cost()
+    test_max_barrier()
+    test_min_barrier()
     test_log_grads()
+
+
