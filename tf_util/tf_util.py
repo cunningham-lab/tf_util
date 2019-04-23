@@ -763,3 +763,191 @@ def get_TIF_string(arch_dict):
     return tif_str
 
 
+# Functions for the quartic formula
+
+def quartic_delta(a, b, c, d, e):
+    """Computes delta for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	delta (tf.tensor): discriminant of quartic formula
+    """
+    delta = 256.0*(a**3)*(e**3) \
+            - 192.0*(a**2)*b*d*(e**2) \
+            - 128.0*(a**2)*(c**2)*(e**2) \
+            + 144.0*(a**2)*c*(d**2)*e \
+            -  27.0*(a**2)*(d**4) \
+            + 144.0*a*(b**2)*c*(e**2) \
+            -   6.0*a*(b**2)*(d**2)*e \
+            -  80.0*a*b*(c**2)*d*e \
+            +  18.0*a*b*c*(d**3) \
+            +  16.0*a*(c**4)*e \
+            -   4.0*a*(c**3)*(d**2) \
+            -  27.0*(b**4)*(e**2) \
+            +  18.0*(b**3)*c*d*e \
+            -   4.0*(b**3)*(d**3) \
+            -   4.0*(b**2)*(c**3)*e \
+            +   1.0*(b**2)*(c**2)*(d**2)
+    return delta
+
+def quartic_delta0(a, b, c, d, e):
+    """Computes delta0 for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	delta0 (tf.tensor): delta0 of quartic formula
+    """
+    delta0 = c**2 -3.0*b*d + 12.0*a*e
+    return delta0
+
+def quartic_delta1(a, b, c, d, e):
+    """Computes p for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	delta1 (tf.tensor): delta1 of quartic formula
+    """
+    delta1 = 2.0*(c**3) - 9.0*b*c*d + 27.0*(b**2)*e + 27.0*a*(d**2) - 72.0*a*c*e
+    return delta1
+
+def quartic_Q(delta, delta1):
+    """Computes Q for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    Args:
+        delta (tf.tensor): discriminant of quartic formula
+        delta1 (tf.tensor): delta1 for quartic formula
+
+    Returns:
+    	Q (tf.tensor): Q of the quartic formula
+    """
+    Q = ((delta1 + tf.sqrt(-27.0*delta))/2.0)**(1.0 / 3.0)
+    return Q
+
+def quartic_S(a, p, Q, delta0):
+    """Computes S for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        p (tf.tensor): p of the quartic formula
+        Q (tf.tensor): Q of the quartic formula
+        delta0 (tf.tensor): delta0 of the quartic formula
+
+    Returns:
+    	p (list): roots of p(x)
+    """
+    S = 0.5*tf.sqrt(-(2.0/3.0)*p + (1.0 / (3.0*a))*(Q + (delta0 / Q)))
+    return S
+
+def quartic_p(a, b, c, d, e):
+    """Computes p for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	p (list): roots of p(x)
+    """
+    p = (8.0*a*c - 3.0*(b**2)) / (8.0*(a**2))
+    return p
+
+def quartic_q(a, b, c, d, e):
+    """Computes q for quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	q (list): roots of p(x)
+    """
+    q = ((b**3) - 4*a*b*c + 8.0*(a**2)*d) / (8.0*(a**3))
+    return q
+
+def quartic_roots(a, b, c, d, e):
+    """Compute the roots of a quartic polynomial using the quartic formula.
+
+    https://en.wikipedia.org/wiki/Quartic_function
+
+    f(x) = ax^4 + bx^3 + cx^2 + dx + e = 0
+
+    Args:
+        a (tf.tensor): coefficients for x^4
+        b (tf.tensor): coefficients for x^3
+        c (tf.tensor): coefficients for x^2
+        d (tf.tensor): coefficients for x^1
+        e (tf.tensor): coefficients for x^0
+
+    Returns:
+    	roots (list): roots of f(x)
+    """
+
+    delta = tf.cast(quartic_delta(a, b, c, d, e), tf.complex128)
+    delta0 = tf.cast(quartic_delta0(a, b, c, d, e), tf.complex128)
+    delta1 = tf.cast(quartic_delta1(a, b, c, d, e), tf.complex128)
+        
+    p = tf.cast(quartic_p(a, b, c, d, e), tf.complex128)
+    q = tf.cast(quartic_q(a, b, c, d, e), tf.complex128)
+
+    a_tfc128 = tf.cast(a, tf.complex128)
+    b_tfc128 = tf.cast(b, tf.complex128)
+        
+    Q = quartic_Q(delta, delta1)
+    S = quartic_S(tf.cast(a_tfc128, tf.complex128), p, Q, delta0)
+        
+    x1 = -(b_tfc128 / (4.0*a_tfc128)) - S + 0.5*tf.sqrt(-4*(S**2) - 2*p + (q / S))
+    x2 = -(b_tfc128 / (4.0*a_tfc128)) - S - 0.5*tf.sqrt(-4*(S**2) - 2*p + (q / S))
+    
+    x3 = -(b_tfc128 / (4.0*a_tfc128)) + S + 0.5*tf.sqrt(-4*(S**2) - 2*p - (q / S))
+    x4 = -(b_tfc128 / (4.0*a_tfc128)) + S - 0.5*tf.sqrt(-4*(S**2) - 2*p - (q / S))
+    roots = [x1, x2, x3, x4]
+    return roots
+

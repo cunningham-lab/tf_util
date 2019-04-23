@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import approx_equal
-from tf_util.tf_util import AL_cost, log_grads, max_barrier, min_barrier
+from tf_util.tf_util import AL_cost, log_grads, max_barrier, min_barrier, quartic_roots
 
 DTYPE = tf.float64
 EPS = 1e-16
@@ -226,11 +226,117 @@ def test_log_grads():
     return None
 
 
+def sort_quartic_roots(roots):
+    """Sort roots by real part and order conjugates.
+
+    Args:
+        roots (np.array): Complex roots of quartic polynomial.
+
+    Returns:
+        sorted_roots (np.array): Sorted roots.
+    """
+    real_parts = np.real(roots)
+    real_sort_inds = np.argsort(real_parts)
+    roots = roots[real_sort_inds]
+    real_parts = real_parts[real_sort_inds]
+
+    # If all roots have the same real part order by imaginary component.
+    if (real_parts[1] == real_parts[2]):
+        # If 1st root also has the same real part.
+        if (real_parts[0] == real_parts[1] and not(real_parts[2] == real_parts[3])):
+            imag_parts = np.imag(roots[:3])
+            imag_sort_inds = np.argsort(imag_parts)
+            roots = np.concatenate((roots[imag_sort_inds], roots[3]), axis=0)
+
+        # If 4th root also has the same real part.
+        elif (not(real_parts[0] == real_parts[1]) and real_parts[2] == real_parts[3]):
+            imag_parts = np.imag(roots[1:])
+            imag_sort_inds = np.argsort(imag_parts)
+            roots = np.concatenate((roots[0], roots[imag_sort_inds]), axis=0)
+        
+        # If all roots have the same real part.
+        elif (not(real_parts[0] == real_parts[1]) and real_parts[2] == real_parts[3]):
+            imag_parts = np.imag(roots)
+            imag_sort_inds = np.argsort(imag_parts)
+            roots = roots[imag_sort_inds]
+    
+        # If just the middle two have the same real part.
+        else:
+            if (np.imag(roots[1]) > np.imag(roots[2])):
+                temp = roots[1]
+                roots[1] = roots[2]
+                roots[2] = temp
+
+    else:
+        # If 1st and 2nd root are complex conjuate pairs, order by imaginary part.
+        if (real_parts[0] == real_parts[1]):
+            if (np.imag(roots[0]) > np.imag(roots[1])):
+                temp = roots[0]
+                roots[0] = roots[1]
+                roots[1] = temp
+
+        # If 3rd and 4th root are complex conjuate pairs, order by imaginary part.
+        if (real_parts[2] == real_parts[3]):
+            if (np.imag(roots[2]) > np.imag(roots[3])):
+                temp = roots[2]
+                roots[2] = roots[3]
+                roots[3] = temp
+
+    return roots
+
+def test_sort_quartic_roots():
+    roots = np.array([[2.0, 1.0, 4.0, 3.0],
+                      [1.0 + 1j, 1.0 - 1j, 3.0, 4.0],
+                      [1.0 + 1j, 1.0 - 1j, -1.0 - 2j, -1.0 + 2j],
+                      [1.0 + 1j, 1.0 - 2j, 1.0 - 1j, 1.0 + 2j]])
+    sorted_roots = np.array([[1.0, 2.0, 3.0, 4.0],
+                      [1.0 - 1j, 1.0 + 1j, 3.0, 4.0],
+                      [-1.0 - 2j, -1.0 + 2j, 1.0 - 1j, 1.0 + 1j],
+                      [1.0 - 2j, 1.0 - 1j, 1.0 + 1j, 1.0 + 2j]])
+
+    num_roots = roots.shape[0]
+    for i in range(num_roots):
+        assert(approx_equal(sorted_roots[i], sort_quartic_roots(roots[i]), EPS))
+    return None
+
+    
+def test_quartic_formula():
+    M = 100
+    a = tf.placeholder(dtype=DTYPE, shape=(M,1))
+    b = tf.placeholder(dtype=DTYPE, shape=(M,1))
+    c = tf.placeholder(dtype=DTYPE, shape=(M,1))
+    d = tf.placeholder(dtype=DTYPE, shape=(M,1))
+    e = tf.placeholder(dtype=DTYPE, shape=(M,1))
+
+    _a = np.random.normal(0.0, 100.0, (M,1))
+    _b = np.random.normal(0.0, 100.0, (M,1))
+    _c = np.random.normal(0.0, 100.0, (M,1))
+    _d = np.random.normal(0.0, 100.0, (M,1))
+    _e = np.random.normal(0.0, 100.0, (M,1))
+
+    roots = quartic_roots(a, b, c, d, e)
+    with tf.Session() as sess:
+        _roots = sess.run(roots, {a:_a, b:_b, c:_c, d:_d, e:_e})
+    _roots = np.concatenate(_roots, axis=1)
+
+    for i in range(M):
+        p = np.array([_a[i,0], _b[i,0], _c[i,0], _d[i,0], _e[i,0]])
+        roots_np = np.roots(p)
+        sorted_roots_np = sort_quartic_roots(roots_np)
+        sorted_roots_tf = sort_quartic_roots(_roots[i])
+        assert(approx_equal(sorted_roots_np, sorted_roots_tf, EPS))
+    return None
+
+
+
+
 if __name__ == "__main__":
     np.random.seed(0)
     test_AL_cost()
     test_max_barrier()
     test_min_barrier()
     test_log_grads()
+    test_sort_quartic_roots()
+    test_quartic_formula()
 
 
