@@ -179,18 +179,18 @@ def check_init(initdir):
 def load_nf_init(initdir, arch_dict):
     initfile = np.load(initdir + "theta.npz")
     theta = initfile["theta"][()]
-    scope = "density_network"
+    scope = "DensityNetwork"
     inits_by_layer = []
     dims_by_layer = []
     layer_ind = 1
 
     if arch_dict["mult_and_shift"] == "pre":
-        a_init = tf.constant(theta["%s/theta_1_1:0" % scope], dtype=DTYPE)
+        a_init = tf.constant(theta["%s/Layer%d/theta_1_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
         layer_ind += 1
 
-        b_init = tf.constant(theta["%s/theta_2_1:0" % scope], dtype=DTYPE)
+        b_init = tf.constant(theta["%s/Layer%d/theta_2_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([b_init])
         dims_by_layer.append([b_init.shape])
         layer_ind += 1
@@ -198,20 +198,20 @@ def load_nf_init(initdir, arch_dict):
     for i in range(arch_dict["repeats"]):
         if arch_dict["TIF_flow_type"] == "PlanarFlow":
             u_init = tf.constant(
-                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 1)], dtype=DTYPE
+                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
             )
             w_init = tf.constant(
-                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 2)], dtype=DTYPE
+                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 2)], dtype=DTYPE
             )
             b_init = tf.constant(
-                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 3)], dtype=DTYPE
+                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 3)], dtype=DTYPE
             )
             init_i = [u_init, w_init, b_init]
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
 
         elif arch_dict["TIF_flow_type"] == "RealNVP":
             params_init = tf.constant(
-                theta["%s/theta_%d_%d:0" % (scope, layer_ind, 1)], dtype=DTYPE
+                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
             )
             init_i = [params_init]
             dims_i = [params_init.shape]
@@ -224,12 +224,12 @@ def load_nf_init(initdir, arch_dict):
         layer_ind += 1
 
     if arch_dict["mult_and_shift"] == "post":
-        a_init = tf.constant(theta["%s/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
+        a_init = tf.constant(theta["%s/PostMultLayer/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
         layer_ind += 1
 
-        b_init = tf.constant(theta["%s/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
+        b_init = tf.constant(theta["%s/PostShiftLayer/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([b_init])
         dims_by_layer.append([b_init.shape])
         layer_ind += 1
