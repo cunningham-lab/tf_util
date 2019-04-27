@@ -9,11 +9,10 @@ EPS = 1e-16
 n = 100
 
 
-def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats, entropy=True, I_x = None):
+def aug_lag_cost(H, T_x_mu_centered, Lambda, c, all_params, num_suff_stats, entropy=True, I_x = None):
     num_params = len(all_params)
 
-    neg_H = tf.reduce_mean(log_q_z)
-    dneg_H_dtheta = tf.gradients(neg_H, all_params)
+    dneg_H_dtheta = tf.gradients(-H, all_params)
     T_x_mean = tf.reduce_mean(T_x_mu_centered, axis=[0, 1])
     T_x_mean_1 = tf.reduce_mean(T_x_mu_centered[:, : (n // 2), :], axis=[0, 1])
     T_x_mean_2 = tf.reduce_mean(T_x_mu_centered[:, (n // 2) :, :], axis=[0, 1])
@@ -45,7 +44,7 @@ def aug_lag_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, num_suff_stats
             sum_grad += dIterm_dtheta[i] 
         grads.append(sum_grad)
 
-    return 0.0, grads, -neg_H
+    return 0.0, grads
 
 def _max_barrier(u, alpha, t):
     return -(1.0/t)*np.log(-u + alpha)
@@ -101,11 +100,12 @@ def test_AL_cost():
         I_x = I_xs[i]
         for entropy in [True, False]:
             for _I_x in [None, I_x]:
-                costs_true, grads_true, H_true = aug_lag_cost(
-                    log_q_z, T_x_mu_centered, Lambda, c, all_params, 2*D, entropy=entropy, I_x=_I_x
+                H = - tf.reduce_mean(log_q_z)
+                costs_true, grads_true = aug_lag_cost(
+                    H, T_x_mu_centered, Lambda, c, all_params, 2*D, entropy=entropy, I_x=_I_x
                 )
 
-                costs, grads, H = AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=entropy, I_x=_I_x)
+                costs, grads, R = AL_cost(H, T_x_mu_centered, Lambda, c, all_params, entropy=entropy, I_x=_I_x)
 
                 with tf.Session() as sess:
                     sess.run(tf.global_variables_initializer())
@@ -115,9 +115,6 @@ def test_AL_cost():
                         _W = np.random.normal(0.0, 1.0, (1, n, D))
                         _grads_true, _grads = sess.run(
                             [grads_true, grads], {W: _W, Lambda: _lambda, c: _c}
-                        )
-                        _H_true, _H = sess.run(
-                            [H_true, H], {W: _W, Lambda: _lambda, c: _c}
                         )
 
                     for k in range(len(all_params)):
