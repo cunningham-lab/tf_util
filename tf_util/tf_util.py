@@ -28,6 +28,26 @@ from tf_util.normalizing_flows import (
 
 DTYPE = tf.float64
 
+def init_layer_params(inits, dims, layer_ind):
+    num_inits = len(inits)
+    params = []
+    for j in range(num_inits):
+        varname_j = "theta_%d_%d" % (layer_ind, j + 1)
+        if isinstance(inits[j], tf.Tensor):
+            var_j = tf.get_variable(
+                varname_j, dtype=DTYPE, initializer=inits[j]
+            )
+        else:
+            var_j = tf.get_variable(
+                varname_j,
+                shape=(dims[j],),
+                dtype=DTYPE,
+                initializer=inits[j],
+            )
+        params.append(tf.expand_dims(var_j,0))
+    return tf.concat(params, 1)
+
+
 
 def density_network(W, arch_dict, support_mapping=None, initdir=None):
     D = arch_dict["D"]
@@ -40,76 +60,65 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     num_layers = len(inits_by_layer)
     # declare layer parameters with initializations
     params = []
-    with tf.variable_scope("density_network"):
-        for i in range(num_layers):
-            params_i = []
-            inits_i = inits_by_layer[i]
-            dims_i = dims_by_layer[i]
-            num_inits = len(inits_i)
-            for j in range(num_inits):
-                varname_ij = "theta_%d_%d" % (i + 1, j + 1)
-                if isinstance(inits_i[j], tf.Tensor):
-                    var_ij = tf.get_variable(
-                        varname_ij, dtype=DTYPE, initializer=inits_i[j]
-                    )
+    with tf.variable_scope("DensityNetwork"):
+
+        Z = W
+        flow_layers = []
+        sum_log_det_jacobians = 0.0
+        ind = 0
+        if arch_dict["mult_and_shift"] == "pre":
+            with tf.variable_scope("PreMultLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ElemMultFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+            with tf.variable_scope("PreShiftLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ShiftFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+        flow_class = get_flow_class(arch_dict["TIF_flow_type"])
+        for i in range(arch_dict["repeats"]):
+            with tf.variable_scope("Layer%d" % (i+1)):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if (flow_class == PlanarFlow):
+                    flow_layer = flow_class(params, Z)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                elif (flow_class == RealNVP):
+                    real_nvp_arch = arch_dict['real_nvp_arch']
+                    num_masks = real_nvp_arch['num_masks']
+                    real_nvp_layers = real_nvp_arch['nlayers']
+                    upl = real_nvp_arch['upl']
+                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 else:
-                    var_ij = tf.get_variable(
-                        varname_ij,
-                        shape=(dims_i[j],),
-                        dtype=DTYPE,
-                        initializer=inits_i[j],
-                    )
-                params_i.append(tf.expand_dims(var_ij, 0))
-            params.append(tf.concat(params_i, 1))
+                    raise NotImplementedError()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
 
-    Z = W
-    flow_layers = []
-    sum_log_det_jacobians = 0.0
-    ind = 0
-    if arch_dict["mult_and_shift"] == "pre":
-        flow_layer = ElemMultFlow(params[ind], Z)
-        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        sum_log_det_jacobians += log_det_jacobian
-        flow_layers.append(flow_layer)
-        ind += 1
+        if arch_dict["mult_and_shift"] == "post":
+            with tf.variable_scope("PostMultLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ElemMultFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
 
-        flow_layer = ShiftFlow(params[ind], Z)
-        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        sum_log_det_jacobians += log_det_jacobian
-        flow_layers.append(flow_layer)
-        ind += 1
-
-    flow_class = get_flow_class(arch_dict["TIF_flow_type"])
-    for i in range(arch_dict["repeats"]):
-        if (flow_class == PlanarFlow):
-            flow_layer = flow_class(params[ind], Z)
-            Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        elif (flow_class == RealNVP):
-            real_nvp_arch = arch_dict['real_nvp_arch']
-            num_masks = real_nvp_arch['num_masks']
-            real_nvp_layers = real_nvp_arch['nlayers']
-            upl = real_nvp_arch['upl']
-            flow_layer = flow_class(params[ind], Z, num_masks, real_nvp_layers, upl)
-            Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        else:
-            print('uh oh')
-            raise NotImplementedError()
-        sum_log_det_jacobians += log_det_jacobian
-        flow_layers.append(flow_layer)
-        ind += 1
-
-    if arch_dict["mult_and_shift"] == "post":
-        flow_layer = ElemMultFlow(params[ind], Z)
-        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        sum_log_det_jacobians += log_det_jacobian
-        flow_layers.append(flow_layer)
-        ind += 1
-
-        flow_layer = ShiftFlow(params[ind], Z)
-        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-        sum_log_det_jacobians += log_det_jacobian
-        flow_layers.append(flow_layer)
-        ind += 1
+            with tf.variable_scope("PostShiftLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ShiftFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
 
     # need to add support mapping
     if support_mapping is not None:
@@ -604,11 +613,11 @@ def Lop(f, x, v):
     return gradients(f, x, grad_ys=v)
 
 
-def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True, I_x=None):
+def AL_cost(H, T_x_mu_centered, Lambda, c, all_params, entropy=True, I_x=None):
     """Computes tensorflow gradients of an augmented lagrangian cost.
 
         Args:
-            log_q_z (tf.tensor): [1,M] Log density of each sample z.
+            H (tf.tensor): (1,) Entropy of batch of zs.
             T_x_mu_centered (tf.tensor): [1,M,|T|] Mean-centered suff stats.
             Lambda (tf.tensor) [|T|] Augmented Lagrangian parameters.
             c (tf.tensor) [()] Augmented Lagrangian parameter.
@@ -626,7 +635,6 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True, I_x=N
     T_x_shape = tf.shape(T_x_mu_centered)
     M = T_x_shape[1]
     half_M = M // 2
-    H = -tf.reduce_mean(log_q_z)
     R = tf.reduce_mean(T_x_mu_centered[0], 0)
     if entropy:
         cost_terms_1 = -H + tf.tensordot(Lambda, R, axes=[0, 0])
@@ -651,7 +659,7 @@ def AL_cost(log_q_z, T_x_mu_centered, Lambda, c, all_params, entropy=True, I_x=N
         for i in range(nparams):
             grads[i] += ineq_con_grad[i]
 
-    return cost, grads, H
+    return cost, grads, R
 
 
 def max_barrier(u, alpha, t):
