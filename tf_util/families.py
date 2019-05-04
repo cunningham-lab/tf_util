@@ -26,12 +26,7 @@ from tf_util.stat_util import (
     drawPoissonCounts,
     get_sampler_func,
 )
-from tf_util.flows import (
-    SimplexBijectionLayer,
-    CholProdLayer,
-    SoftPlusLayer,
-    ShiftLayer,
-)
+from tf_util.normalizing_flows import IntervalFlow, SimplexBijectionFlow, SoftPlusFlow
 
 DTYPE = tf.float64
 
@@ -54,6 +49,7 @@ class Family:
 		has_log_p (bool): True if a tractable form for sample log density is known.
 		eta_dist (dict): Specifies the prior on the natural parameter, eta.
 		eta_sampler (function): Returns a single sample from the eta prior.
+        has_support_map (bool): True if there is a support transformation.
 
 	"""
 
@@ -71,7 +67,7 @@ class Family:
         self.num_T_z_inputs = 0
         self.constant_base_measure = True
         self.has_log_p = False
-        self.support_mapping = None
+        self.has_support_map = False
         if eta_dist is not None:
             self.eta_dist = eta_dist
         else:
@@ -308,7 +304,6 @@ class MultivariateNormal(Family):
 
 		Args:
 			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
 			eta_dist (dict): Specifies the prior on the natural parameter, eta.
 
 		"""
@@ -556,6 +551,60 @@ class MultivariateNormal(Family):
         H_true = dist.entropy()
         return H_true
 
+class TruncatedNormal(MultivariateNormal):
+    """Truncated normal family."""
+
+    def __init__(self, D, eta_dist=None, a=-1e10, b=1e10):
+        """Truncated normal family constructor
+
+		Args:
+			D (int): dimensionality of the exponential family
+			eta_dist (dict): Specifies the prior on the natural parameter, eta.a
+            a (float): lower bound for each dimension of the Gaussian
+            b (float): upper bound for each dimension of the Gaussian
+		"""
+        super().__init__(D, eta_dist)
+        self.name = "TruncatedNormal"
+        self.has_support_map = True
+        self.a = a
+        self.b = b
+        self.constant_base_measure = True
+        self.has_log_p = False
+
+    def compute_log_base_measure(self, Z):
+        """Compute log base measure of density network samples.
+
+		Args:
+			X (tf.Tensor): Density network samples.
+
+		Returns:
+			log_h_z (tf.Tensor): Log base measure of samples.
+
+		"""
+        raise NotImplementedError()
+        return None
+
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
+
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
+
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        if ((self.a is not None) and (self.b is not None)):
+            return IntervalFlow([], inputs, np.array([self.a]), np.array([self.b]))
+        elif (self.b is None):
+            # Should be softplus with an offset
+            raise NotImplementedError()
+        elif (self.a is None):
+            # Should be reflection and softplus with an offset
+            raise NotImplementedError()
+        else:
+            print("Error: truncated normal needs to have at least one bound.")
+            exit()
+
 
 class Dirichlet(Family):
     """Dirichlet family.
@@ -569,7 +618,7 @@ class Dirichlet(Family):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """dirichlet family constructor
 
 		Args:
@@ -577,29 +626,24 @@ class Dirichlet(Family):
 			T (int): number of time points. Defaults to 1.
 
 		"""
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "Dirichlet"
+        self.has_support_map = True
         self.D_Z = D - 1
         self.num_suff_stats = D
         self.constant_base_measure = False
         self.has_log_p = True
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-
-		"""
-        support_layer = SimplexBijectionLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        return SimplexBijectionFlow([], inputs)
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -815,13 +859,15 @@ class InvWishart(Family):
         self.sqrtD = int(np.sqrt(D))
         super().__init__(D, T, eta_dist)
         self.name = "InvWishart"
+        self.has_support_map = True
         self.D_Z = int(self.sqrtD * (self.sqrtD + 1) / 2)
         self.num_suff_stats = self.D_Z + 1
         self.has_log_p = True
         self.diag_eps = 1e-10
 
+    """
     def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+        Augment density network with bijective mapping to support.
 
 		Args:
 			layers (list): List of ordered normalizing flow layers.
@@ -831,11 +877,24 @@ class InvWishart(Family):
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
 
-		"""
+		
         support_layer = CholProdLayer()
         num_theta_params += count_layer_params(support_layer)
         layers.append(support_layer)
         return layers, num_theta_params
+    """
+
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
+
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
+
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        raise NotImplementedError()
+        return None
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -1048,28 +1107,24 @@ class HierarchicalDirichlet(PosteriorFamily):
 
         super().__init__(D, T, eta_dist)
         self.name = "HierarchicalDirichlet"
+        self.has_support_map = True
         self.D_Z = D - 1
         self.num_prior_suff_stats = D + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
         self.num_T_z_inputs = 1
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        return SimplexBijectionFlow([], inputs)
 
-		"""
-        support_layer = SimplexBijectionLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -1264,28 +1319,23 @@ class DirichletMultinomial(PosteriorFamily):
 
         super().__init__(D, T, eta_dist)
         self.name = "DirichletMultinomial"
+        self.has_support_map = True
         self.D_Z = D - 1
         self.num_prior_suff_stats = D + 1
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
         self.num_T_z_inputs = 0
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-
-		"""
-        support_layer = SimplexBijectionLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        return SimplexBijectionFlow([], inputs)
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -1443,6 +1493,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
 
         super().__init__(D, T, eta_dist)
         self.name = "TruncatedNormalPoisson"
+        self.has_support_map = True
         self.D_Z = D
         self.num_prior_suff_stats = int(D + D * (D + 1) / 2) + 1
         self.num_likelihood_suff_stats = D + 1
@@ -1450,22 +1501,17 @@ class TruncatedNormalPoisson(PosteriorFamily):
         self.num_T_z_inputs = 0
         self.prior_family = MultivariateNormal(D, T)
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-
-		"""
-        support_layer = SoftPlusLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        raise NotImplementedError()
+        return SoftPlusFlow([], inputs)
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -1686,6 +1732,7 @@ class LogGaussianCox(PosteriorFamily):
 
         super().__init__(D, T, eta_dist)
         self.name = "LogGaussianCox"
+        self.has_support_map = True
         self.D_Z = D
         self.num_prior_suff_stats = int(D + D * (D + 1) / 2) + 1
         self.num_likelihood_suff_stats = D + 1
@@ -1697,8 +1744,8 @@ class LogGaussianCox(PosteriorFamily):
         self.train_set = None
         self.test_set = None
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    """def map_to_support(self, layers, num_theta_params):
+        Augment density network with bijective mapping to support.
 
 		Args:
 			layers (list): List of ordered normalizing flow layers.
@@ -1708,11 +1755,24 @@ class LogGaussianCox(PosteriorFamily):
 			layers (list): layers augmented with final support mapping layer.
 			num_theta_params (int): Updated count of density network parameters.
 
-		"""
+		
         support_layer = ShiftLayer(name="ShiftLayer", dim=self.D_Z)
         num_theta_params += count_layer_params(support_layer)
         layers.append(support_layer)
         return layers, num_theta_params
+    """
+
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
+
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
+
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        raise NotImplementedError()
+        return None
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -2307,22 +2367,16 @@ class GPDirichlet(Family):
 
         return None
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-
-		"""
-        support_layer = SimplexBijectionLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        return SimplexBijectionFlow([], inputs)
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -2478,22 +2532,16 @@ class GPEDirichlet(Family):
 
         return None
 
-    def map_to_support(self, layers, num_theta_params):
-        """Augment density network with bijective mapping to support.
+    def support_mapping(self, inputs):
+        """Maps from real numbers to support of parameters.
 
-		Args:
-			layers (list): List of ordered normalizing flow layers.
-			num_theta_params (int): Running count of density network parameters.
+        # Arguments:
+            inputs (np.array): Input from previous layers of the DSN.
 
-		Returns:
-			layers (list): layers augmented with final support mapping layer.
-			num_theta_params (int): Updated count of density network parameters.
-
-		"""
-        support_layer = SimplexBijectionLayer()
-        num_theta_params += count_layer_params(support_layer)
-        layers.append(support_layer)
-        return layers, num_theta_params
+        # Returns
+            Z (np.array): Samples from the DSN at the final layer.
+        """
+        return SimplexBijectionFlow([], inputs)
 
     def compute_suff_stats(self, Z, Z_by_layer, T_z_input):
         """Compute sufficient statistics of density network samples.
@@ -2634,6 +2682,8 @@ class GPEDirichlet(Family):
 def family_from_str(exp_fam_str):
     if exp_fam_str in ["MultivariateNormal", "normal", "multivariate_normal"]:
         return MultivariateNormal
+    elif exp_fam_str in ["TruncatedNormal", "truncated_normal"]:
+        return TruncatedNormal
     elif exp_fam_str in ["Dirichlet", "dirichlet"]:
         return Dirichlet
     elif exp_fam_str in ["InvWishart", "inv_wishart"]:
