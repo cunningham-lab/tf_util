@@ -131,7 +131,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
     return Z, sum_log_det_jacobians, flow_layers
 
 
-def get_initdir(system, arch_dict, sigma, random_seed):
+def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
     # set file I/O stuff
     prefix = "data/inits/"
     archstring = get_archstring(arch_dict)
@@ -141,42 +141,35 @@ def get_initdir(system, arch_dict, sigma, random_seed):
         for i in range(1, system.D):
             init_mu_str += "_%.2f" % system.density_network_init_mu[i]
 
-    if ("bounds" in system.behavior.keys()):
-        # when there are inequalities, need system and behavior-specific init
-        sysparams = system.free_params[0]
-        num_free_params = len(system.free_params)
-        if num_free_params > 1:
-            for i in range(1, num_free_params):
-                sysparams += "_%s" % system.free_params[i]
+    sysparams = system.free_params[0]
+    num_free_params = len(system.free_params)
+    if num_free_params > 1:
+        for i in range(1, num_free_params):
+            sysparams += "_%s" % system.free_params[i]
 
-        initdir = prefix + "%s_%s_%s_flow=%s_mu=%s_sigma=%.2f_rs=%d/" % (
-            system.name,
-            sysparams,
-            system.behavior_str,
-            archstring,
-            init_mu_str,
-            sigma,
-            random_seed,
-        )
+    if (system.density_network_bounds is not None):
+        initdir = prefix + "D=%d_%s%s_%s_mu=%s_sigma=%.2f_from_%.2f_to_%.2f_rs=%d/" % (
+                    system.D,
+                    sysparams,
+                    init_type,
+                    archstring,
+                    init_mu_str,
+                    sigma,
+                    system.density_network_bounds[0],
+                    system.density_network_bounds[1],
+                    random_seed,
+                    )
     else:
-        if (system.density_network_bounds is not None):
-            initdir = prefix + "D=%d_%s_mu=%s_sigma=%.2f_from_%.2f_to_%.2f_rs=%d/" % (
-                        system.D,
-                        archstring,
-                        init_mu_str,
-                        sigma,
-                        system.density_network_bounds[0],
-                        system.density_network_bounds[1],
-                        random_seed,
-                        )
-        else:
-            initdir = prefix + "D=%d_%s_mu=%s_sigma=%.2f_rs=%d/" % (
-                        system.D,
-                        archstring,
-                        init_mu_str, 
-                        sigma,
-                        random_seed,
-                        )
+        initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_rs=%d/" % (
+                    system.D,
+                    sysparams,
+                    init_type,
+                    archstring,
+                    init_mu_str, 
+                    sigma,
+                    random_seed,
+                    )
+
     return initdir
 
 def check_init(initdir):
