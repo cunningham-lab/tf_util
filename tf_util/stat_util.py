@@ -83,7 +83,7 @@ def approx_equal(arg1, arg2, eps, allow_special=False, perc=False):
     if maxerr <= eps:
         return True
     else:
-        #print("Failed: max error:", maxerr)
+        print("Failed: max error:", maxerr)
         return False
 
 
@@ -443,6 +443,10 @@ def get_GP_Sigma(tau, T, Ts):
                 K[j, i] = K[i, j]
     return K
 
+def sample_gumbel(M, K):
+    assert(type(M) == int)
+    assert(type(K) == int)
+    return -np.log(-np.log(np.random.uniform(0.0, 1.0, (M,K))))
 
 """
 def get_S_D_graph(x, D, T):

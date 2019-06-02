@@ -6,6 +6,7 @@ from tf_util.stat_util import (
     get_dist_str,
     get_sampler_func,
     get_density_func,
+    sample_gumbel,
 )
 
 import os
@@ -336,8 +337,25 @@ def test_isotropic_inv_wishart():
 
     return None
 
+def test_sample_gumbel():
+    M = 1000
+    K = 100
+    G = sample_gumbel(M, K)
+    euler_masch_const = 0.5772156649
+    true_mean = euler_masch_const
+    true_var = np.square(np.pi) / 6.0
+    true_skew = np.square(np.pi) / 6.0
+    true_kurtosis = 12.0 / 5
+    assert(np.abs(true_mean - np.mean(G)) < 0.01)
+    assert(np.abs(true_var - np.var(G)) < 0.05)
+    assert(np.abs(true_kurtosis - scipy.stats.kurtosis(np.reshape(G, (M*K)))) < 0.2)
+
+    return None
+
 
 if __name__ == "__main__":
+    test_sample_gumbel()
+    """
     test_approx_equal()
     test_get_dist_str()
     test_delta()
@@ -350,3 +368,4 @@ if __name__ == "__main__":
     test_dirichlet()
     test_inv_wishart()
     test_isotropic_inv_wishart()
+    """
