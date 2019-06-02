@@ -1,7 +1,16 @@
 import tensorflow as tf
 import numpy as np
-from tf_util.stat_util import approx_equal
-from tf_util.tf_util import AL_cost, log_grads, max_barrier, min_barrier, quartic_roots
+from tf_util.stat_util import approx_equal, sample_gumbel
+from tf_util.tf_util import (
+    get_flow_type_string,
+    get_archstring,
+    AL_cost, 
+    log_grads, 
+    max_barrier, 
+    min_barrier, 
+    quartic_roots,
+    gumbel_softmax_trick,
+)
 
 DTYPE = tf.float64
 EPS = 1e-16
@@ -51,6 +60,93 @@ def _max_barrier(u, alpha, t):
 
 def _min_barrier(u, alpha, t):
     return -(1.0/t)*np.log(u - alpha)
+
+def gumbel_softmax_trick_np(G, alpha, tau):
+    M = G.shape[0]
+    K = G.shape[1]
+    C = np.zeros((M,K))
+    for i in range(M):
+        numerator = np.exp((np.log(alpha) + G[i])/tau)
+        C[i] = numerator / np.sum(numerator)
+    return C
+
+def test_get_flow_type_string():
+    flow_types = ["AffineFlow",
+                  "CholProdFlow",
+                  "ElemMultFlow",
+                  "ExpFlow",
+                  "IntervalFlow",
+                  "PlanarFlow",
+                  "RadialFlow",
+                  "ShiftFlow",
+                  "SimplexBijectionFlow",
+                  "SoftPlusFlow",
+                  "StructuredSpinnerFlow",
+                  "StructuredSpinnerTanhFlow",
+                  "TanhFlow"]
+    flow_type_strings = ["Aff",
+                         "C",
+                         "M",
+                         "Exp",
+                         "I",
+                         "P",
+                         "R",
+                         "A",
+                         "Simp",
+                         "Soft",
+                         "SS",
+                         "SST",
+                         "Tanh"]
+    num_flow_types = len(flow_types)
+    for i in range(num_flow_types):
+        flow_type = flow_types[i]
+        assert(get_flow_type_string({"flow_type":flow_type}) == flow_type_strings[i])
+
+    flow_type = "RealNVP"
+    num_masks_list = [1, 2, 4]
+    nlayers_list = [2, 4, 8]
+    upl_list = [10, 20, 100]
+    arch_dict = {"flow_type":flow_type}
+    for i in range(len(num_masks_list)):
+        num_masks = num_masks_list[i]
+        for j in range(len(nlayers_list)):
+            nlayers = nlayers_list[j]
+            for k in range(len(upl_list)):
+                upl = upl_list[k]
+                real_nvp_arch = {"num_masks":num_masks,
+                                 "nlayers":nlayers,
+                                 "upl":upl}
+                arch_dict.update({"real_nvp_arch":real_nvp_arch})
+                flow_type_string = "R_%dM_%dL_%dU" % (num_masks, nlayers, upl)
+                assert(get_flow_type_string(arch_dict) == flow_type_string)
+
+    return None
+                 
+
+def test_get_archstring():
+    D = 5
+    flow_type = "PlanarFlow"
+    repeats = 10
+    arch_dict = {"D": D,
+                 "K": 1,
+                 "shared_network": True,
+                 "flow_type": flow_type,
+                 "repeats": repeats,
+                 "post_affine": True}
+    assert(get_archstring(arch_dict) == "10P_M_A")
+    arch_dict.update({"post_affine":False})
+    assert(get_archstring(arch_dict) == "10P")
+    arch_dict.update({"repeats":9})
+    assert(get_archstring(arch_dict) == "9P")
+    arch_dict.update({"K":4})
+    assert(get_archstring(arch_dict) == "K=4_shared_9P")
+    arch_dict.update({"shared_network":False})
+    assert(get_archstring(arch_dict) == "K=4_9P")
+    arch_dict.update({"repeats":11})
+    assert(get_archstring(arch_dict) == "K=4_11P")
+    arch_dict.update({"post_affine":True})
+    assert(get_archstring(arch_dict) == "K=4_11P_M_A")
+    return None
 
 def test_AL_cost():
     D = 10
@@ -143,6 +239,32 @@ def test_max_barrier():
                 _I_x = sess.run(I_x, {u:_u})
             assert(approx_equal(_I_x, I_x_true, EPS))
     return None
+
+def test_gumbel_softmax_trick():
+    M = 100
+    K = 5
+    tau = 0.05
+    G = tf.placeholder(tf.float64, shape=(1, M, K))
+    beta_init = tf.random_normal(((K-1,)), 0.0, 0.01, dtype=tf.float64)
+    beta = tf.get_variable('beta', dtype=tf.float64, initializer=beta_init)
+    exp_beta = tf.exp(beta)
+    alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64)), axis=0) \
+            / (tf.reduce_sum(exp_beta) + 1.0)
+    C = gumbel_softmax_trick(G, alpha, tau)
+
+    sess = tf.Session()
+    sess.run(tf.global_variables_initializer())
+    _alpha = sess.run(alpha)
+    _G = sample_gumbel(M, K)
+
+    _C = sess.run(C, {G:np.expand_dims(_G,0)})
+
+    C_true = gumbel_softmax_trick_np(_G, _alpha, tau)
+    assert(approx_equal(C_true, _C, EPS))
+    assert(approx_equal(np.sum(_C, 1), 1.0, EPS))
+    assert(np.sum(np.isnan(_C)) + np.sum(np.isinf(_C)) == 0)
+    return None
+
 
 def test_min_barrier():
     M = 1000
@@ -329,6 +451,9 @@ def test_quartic_formula():
 
 if __name__ == "__main__":
     np.random.seed(0)
+    test_get_flow_type_string()
+    test_get_archstring()
+    test_gumbel_softmax_trick()
     test_AL_cost()
     test_max_barrier()
     test_min_barrier()

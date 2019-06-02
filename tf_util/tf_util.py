@@ -66,24 +66,8 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         flow_layers = []
         sum_log_det_jacobians = 0.0
         ind = 0
-        if arch_dict["mult_and_shift"] == "pre":
-            with tf.variable_scope("PreMultLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ElemMultFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
 
-            with tf.variable_scope("PreShiftLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ShiftFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
-
-        flow_class = get_flow_class(arch_dict["TIF_flow_type"])
+        flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
             with tf.variable_scope("Layer%d" % (i+1)):
                 params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
@@ -103,7 +87,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
                 flow_layers.append(flow_layer)
                 ind += 1
 
-        if arch_dict["mult_and_shift"] == "post":
+        if arch_dict["post_affine"]:
             with tf.variable_scope("PostMultLayer"):
                 params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
                 flow_layer = ElemMultFlow(params, Z)
@@ -129,6 +113,100 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
             flow_layers.append(final_layer)
 
     return Z, sum_log_det_jacobians, flow_layers
+
+
+def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None):
+    """
+        G (int tf.tensor) : (1 x M) Gumble random variables
+        W (tf.tensor) : (1 x M x D) isotropic noise
+    """
+    D = arch_dict["D"]
+    K = arch_dict["K"]
+    assert(K > 1)
+    gaussian_inits, density_network_inits = get_mixture_density_network_inits(arch_dict)
+    print("Got random initialization.")
+
+    # declare layer parameters with initializations
+    params = []
+    with tf.variable_scope("MixtureDensityNetwork"):
+
+        with tf.variable_scope("MoG"):
+            # Gumbel Softmax Trick
+            tau = 0.01
+            beta = tf.get_variable('beta', (K-1,), tf.float64)
+            exp_beta = tf.exp(beta)
+            alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64))) \
+                    / (tf.reduce_sum(exp_beta) + 1.0)
+            C, Csoft = gumbel_softmax_trick(G, alpha, tau)
+            # select mu_k and sigma_k accordingly
+            
+            # pass through density network accordingly
+
+            # compute log_p accordingly
+
+        Z = W
+        flow_layers = []
+        sum_log_det_jacobians = 0.0
+        ind = 0
+
+        flow_class = get_flow_class(arch_dict["flow_type"])
+        for i in range(arch_dict["repeats"]):
+            with tf.variable_scope("Layer%d" % (i+1)):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if (flow_class == PlanarFlow):
+                    flow_layer = flow_class(params, Z)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                elif (flow_class == RealNVP):
+                    real_nvp_arch = arch_dict['real_nvp_arch']
+                    num_masks = real_nvp_arch['num_masks']
+                    real_nvp_layers = real_nvp_arch['nlayers']
+                    upl = real_nvp_arch['upl']
+                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                else:
+                    raise NotImplementedError()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+        if arch_dict["post_affine"]:
+            with tf.variable_scope("PostMultLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ElemMultFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+            with tf.variable_scope("PostShiftLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ShiftFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+    # need to add support mapping
+    if support_mapping is not None:
+        with tf.variable_scope("SupportMapping"):
+            final_layer = support_mapping(Z)
+            Z, log_det_jacobian = final_layer.forward_and_jacobian()
+            sum_log_det_jacobians += log_det_jacobian
+            flow_layers.append(final_layer)
+
+    return Z, sum_log_det_jacobians, flow_layers
+
+def gumbel_softmax_trick(G, alpha, tau):
+    """
+        G (int tf.tensor) : (1 x M x K) Gumble random variables
+        W (tf.tensor) : (1 x M x D) isotropic noise
+    """
+    alpha = tf.expand_dims(alpha, 0)
+    G = G[0]
+    C_unnorm = tf.exp((tf.log(alpha) + G)/tau)
+    C = tf.divide(C_unnorm, tf.expand_dims(tf.reduce_sum(C_unnorm, 1), 1))
+    return C
+    
 
 
 def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
@@ -196,19 +274,8 @@ def load_nf_init(initdir, arch_dict):
     dims_by_layer = []
     layer_ind = 1
 
-    if arch_dict["mult_and_shift"] == "pre":
-        a_init = tf.constant(theta["%s/Layer%d/theta_1_1:0" % (scope, layer_ind)], dtype=DTYPE)
-        inits_by_layer.append([a_init])
-        dims_by_layer.append([a_init.shape])
-        layer_ind += 1
-
-        b_init = tf.constant(theta["%s/Layer%d/theta_2_1:0" % (scope, layer_ind)], dtype=DTYPE)
-        inits_by_layer.append([b_init])
-        dims_by_layer.append([b_init.shape])
-        layer_ind += 1
-
     for i in range(arch_dict["repeats"]):
-        if arch_dict["TIF_flow_type"] == "PlanarFlow":
+        if arch_dict["flow_type"] == "PlanarFlow":
             u_init = tf.constant(
                 theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
             )
@@ -221,7 +288,7 @@ def load_nf_init(initdir, arch_dict):
             init_i = [u_init, w_init, b_init]
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
 
-        elif arch_dict["TIF_flow_type"] == "RealNVP":
+        elif arch_dict["flow_type"] == "RealNVP":
             params_init = tf.constant(
                 theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
             )
@@ -235,7 +302,7 @@ def load_nf_init(initdir, arch_dict):
         dims_by_layer.append(dims_i)
         layer_ind += 1
 
-    if arch_dict["mult_and_shift"] == "post":
+    if arch_dict["post_affine"]:
         a_init = tf.constant(theta["%s/PostMultLayer/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
         inits_by_layer.append([a_init])
         dims_by_layer.append([a_init.shape])
@@ -744,14 +811,14 @@ def memory_extension(input_arrays, array_cur_len):
     return extended_arrays
 
 
-def get_archstring(arch_dict):
-    """Get string description of density network.
+def get_mep_archstring(arch_dict):
+    """Get string description of latent dynamical density network.
 
         Args:
             arch_dict (dict): Specifies structure of approximating density network.
 
         Returns:
-            tif_str (str): String specifying time-invariant flow network architecture.
+            arch_str (str): String specifying flow network architecture.
 
         """
     latent_dynamics = arch_dict["latent_dynamics"]
@@ -771,16 +838,74 @@ def get_archstring(arch_dict):
     else:
         return arch_str
 
-def get_TIF_string(arch_dict):
-    tif_flow_type = arch_dict["TIF_flow_type"]
-    if (tif_flow_type == "RealNVP"):
+def get_archstring(arch_dict):
+    """Get string description of density network.
+
+        Args:
+            arch_dict (dict): Specifies structure of approximating density network.
+
+        Returns:
+            archstr (str): String specifying flow network architecture.
+
+        """
+    K = arch_dict["K"] # mixture components
+    is_shared = arch_dict["shared_network"]
+    flow_type = arch_dict["flow_type"]
+    repeats = arch_dict["repeats"]
+
+    flow_type_str = get_flow_type_string(arch_dict)
+
+    if K == 1:
+        arch_str = ""
+    elif K > 1:
+        arch_str = "K=%d_" % K
+        if is_shared:
+            arch_str += "shared_"
+    else:
+        print('Error: K must be positive integer.')
+        exit()
+
+    arch_str += "%d%s" % (repeats, flow_type_str)
+
+    if arch_dict["post_affine"]:
+        arch_str += "_M_A"
+
+    return arch_str
+
+def get_flow_type_string(arch_dict):
+    flow_type = arch_dict["flow_type"]
+    if (flow_type == "AffineFlow"):
+        flow_type_str = "Aff"
+    elif (flow_type == "CholProdFlow"):
+        flow_type_str = "C"
+    elif (flow_type == "ElemMultFlow"):
+        flow_type_str = "M"
+    elif (flow_type == "ExpFlow"):
+        flow_type_str = "Exp"
+    elif (flow_type == "IntervalFlow"):
+        flow_type_str = "I"
+    elif (flow_type == "PlanarFlow"):
+        flow_type_str = "P"
+    elif (flow_type == "RadialFlow"):
+        flow_type_str = "R"
+    if (flow_type == "RealNVP"):
         real_nvp_arch = arch_dict['real_nvp_arch']
-        tif_str = 'R_%dM_%dL_%dU' % (real_nvp_arch["num_masks"], \
+        flow_type_str = 'R_%dM_%dL_%dU' % (real_nvp_arch["num_masks"], \
                                      real_nvp_arch["nlayers"], \
                                      real_nvp_arch["upl"])
-    else:
-        tif_str = tif_flow_type[:1]
-    return tif_str
+    elif (flow_type == "ShiftFlow"):
+        flow_type_str = "A"
+    elif (flow_type == "SimplexBijectionFlow"):
+        flow_type_str = "Simp"
+    elif (flow_type == "SoftPlusFlow"):
+        flow_type_str = "Soft"
+    elif (flow_type == "StructuredSpinnerFlow"):
+        flow_type_str = "SS"
+    elif (flow_type == "StructuredSpinnerTanhFlow"):
+        flow_type_str = "SST"
+    elif (flow_type == "TanhFlow"):
+        flow_type_str = "Tanh"
+    return flow_type_str 
 
 
 # Functions for the quartic formula
