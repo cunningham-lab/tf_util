@@ -184,28 +184,16 @@ def get_density_network_inits(arch_dict):
     dims_by_layer = []
     D = arch_dict["D"]
 
-    if arch_dict["latent_dynamics"] is not None:
-        raise NotImplementedError()
-
-    if arch_dict["mult_and_shift"] == "pre":
-        em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
-        inits_by_layer.append(em_inits)
-        dims_by_layer.append(em_dims)
-
-        shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
-        inits_by_layer.append(em_inits)
-        dims_by_layer.append(em_dims)
-
-    TIF_flow = get_flow_class(arch_dict["TIF_flow_type"])
+    flow_type = get_flow_class(arch_dict["flow_type"])
     for i in range(arch_dict["repeats"]):
-        if (TIF_flow == RealNVP):
+        if (flow_type == RealNVP):
             inits, dims = get_flow_param_inits(TIF_flow, D, arch_dict['real_nvp_arch'])
         else:
             inits, dims = get_flow_param_inits(TIF_flow, D)
         inits_by_layer.append(inits)
         dims_by_layer.append(dims)
 
-    if arch_dict["mult_and_shift"] == "post":
+    if arch_dict["post_affine"] == True:
         em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
         inits_by_layer.append(em_inits)
         dims_by_layer.append(em_dims)
@@ -215,6 +203,48 @@ def get_density_network_inits(arch_dict):
         dims_by_layer.append(em_dims)
 
     return inits_by_layer, dims_by_layer
+
+
+def get_mixture_density_network_inits(arch_dict):
+    D = arch_dict["D"]
+    K = arch_dict["K"]
+    assert(K > 1)
+    is_shared = arch_dict["shared_network"]
+
+    MoG_inits = []
+    for k in range(K):
+        mu_k_init = tf.constant(np.random.normal(0.0, 1.0, (D,)), tf.float64)
+        sigma_k_init = tf.constant(np.ones((D,), np.float64))
+        MoG_inits.append((mu_k, sigma_k))
+
+    if (is_shared):
+        num_networks = 1
+    else:
+        num_networks = K
+
+    flow_type = get_flow_class(arch_dict["flow_type"])
+    for k in range(num_networks):
+        inits_by_layer = []
+        dims_by_layer = []
+        for i in range(arch_dict["repeats"]):
+            if (flow_type == RealNVP):
+                inits, dims = get_flow_param_inits(TIF_flow, D, arch_dict['real_nvp_arch'])
+            else:
+                inits, dims = get_flow_param_inits(TIF_flow, D)
+            inits_by_layer.append(inits)
+            dims_by_layer.append(dims)
+
+        if arch_dict["post_affine"] == True:
+            em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
+            inits_by_layer.append(em_inits)
+            dims_by_layer.append(em_dims)
+
+            shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
+            inits_by_layer.append(em_inits)
+            dims_by_layer.append(em_dims)
+        density_network_inits.append((inits_by_layer, dims_by_layer))
+
+    return MoG_inits, density_network_inits
 
 
 # Time invariant flows
@@ -521,7 +551,7 @@ class IntervalFlow(NormFlow):
 class PlanarFlow(NormFlow):
     """Planar flow layer
 
-    Implements the function [imsert some tex]
+    Implements the function [insert some tex]
 
     # Attributes
         self._u (tf.tensor): [K, self.dim] u parameter from self.params.
