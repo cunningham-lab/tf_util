@@ -123,6 +123,7 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
     D = arch_dict["D"]
     K = arch_dict["K"]
     assert(K > 1)
+    is_shared = arch_dict["shared_network"]
     gaussian_inits, density_network_inits = get_mixture_density_network_inits(arch_dict)
     print("Got random initialization.")
 
@@ -131,70 +132,89 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
     with tf.variable_scope("MixtureDensityNetwork"):
 
         with tf.variable_scope("MoG"):
+            mixture_of_gaussians = []
+            mus = []
+            sigmas = []
+            for k in range(K):
+                mu_k_init, sigma_k_init = gaussian_inits[k]
+                mu_k = tf.get_variable('mu_%d' % (k+1), dtype=tf.float64, init=mu_k_init)
+                sigma_k = tf.get_variable('sigma_%d' % (k+1), dtype=tf.float64, init=sigma_k_init)
+                mus.append(mu_k)
+                sigmas.append(sigma_k)
+                mixture_of_gaussians.append((mu_k, sigma_k))
+            mu = tf.stack(mus, 0) # (K x D)
+            sigma = tf.stack(sigmas, 0) # (K x D)
+
             # Gumbel Softmax Trick
-            tau = 0.01
+            tau = 0.05
             beta = tf.get_variable('beta', (K-1,), tf.float64)
             exp_beta = tf.exp(beta)
             alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64))) \
                     / (tf.reduce_sum(exp_beta) + 1.0)
-            C, Csoft = gumbel_softmax_trick(G, alpha, tau)
+            C = gumbel_softmax_trick(G, alpha, tau) # (M x K)
+
             # select mu_k and sigma_k accordingly
-            
-            # pass through density network accordingly
+            C_dot_mu = tf.matmul(C, mu) # (M x D)
+            C_dot_sigma = tf.matmul(C, sigma) # (M x D)
 
-            # compute log_p accordingly
+            # write code for density for mixture of gaussians
 
-        Z = W
-        flow_layers = []
-        sum_log_det_jacobians = 0.0
-        ind = 0
+        Z = C_dot_mu + tf.multiply(C_dot_sigma, W)
 
-        flow_class = get_flow_class(arch_dict["flow_type"])
-        for i in range(arch_dict["repeats"]):
-            with tf.variable_scope("Layer%d" % (i+1)):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                if (flow_class == PlanarFlow):
-                    flow_layer = flow_class(params, Z)
+        if (is_shared):
+            flow_layers = []
+            sum_log_det_jacobians = 0.0
+            ind = 0
+
+            flow_class = get_flow_class(arch_dict["flow_type"])
+            for i in range(arch_dict["repeats"]):
+                with tf.variable_scope("Layer%d" % (i+1)):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                    if (flow_class == PlanarFlow):
+                        flow_layer = flow_class(params, Z)
+                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    elif (flow_class == RealNVP):
+                        real_nvp_arch = arch_dict['real_nvp_arch']
+                        num_masks = real_nvp_arch['num_masks']
+                        real_nvp_layers = real_nvp_arch['nlayers']
+                        upl = real_nvp_arch['upl']
+                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    else:
+                        raise NotImplementedError()
+                    sum_log_det_jacobians += log_det_jacobian
+                    flow_layers.append(flow_layer)
+                    ind += 1
+
+            if arch_dict["post_affine"]:
+                with tf.variable_scope("PostMultLayer"):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                    flow_layer = ElemMultFlow(params, Z)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                elif (flow_class == RealNVP):
-                    real_nvp_arch = arch_dict['real_nvp_arch']
-                    num_masks = real_nvp_arch['num_masks']
-                    real_nvp_layers = real_nvp_arch['nlayers']
-                    upl = real_nvp_arch['upl']
-                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                    sum_log_det_jacobians += log_det_jacobian
+                    flow_layers.append(flow_layer)
+                    ind += 1
+
+                with tf.variable_scope("PostShiftLayer"):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                    flow_layer = ShiftFlow(params, Z)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                else:
-                    raise NotImplementedError()
+                    sum_log_det_jacobians += log_det_jacobian
+                    flow_layers.append(flow_layer)
+                    ind += 1
+                    jjjj
+        # need to add support mapping
+        if support_mapping is not None:
+            with tf.variable_scope("SupportMapping"):
+                final_layer = support_mapping(Z)
+                Z, log_det_jacobian = final_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
+                flow_layers.append(final_layer)
 
-        if arch_dict["post_affine"]:
-            with tf.variable_scope("PostMultLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ElemMultFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
+        return Z, sum_log_det_jacobians, flow_layers
 
-            with tf.variable_scope("PostShiftLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ShiftFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
-
-    # need to add support mapping
-    if support_mapping is not None:
-        with tf.variable_scope("SupportMapping"):
-            final_layer = support_mapping(Z)
-            Z, log_det_jacobian = final_layer.forward_and_jacobian()
-            sum_log_det_jacobians += log_det_jacobian
-            flow_layers.append(final_layer)
-
-    return Z, sum_log_det_jacobians, flow_layers
+    else:
+        raise NotImplementedError()
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
