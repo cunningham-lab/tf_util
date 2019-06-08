@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tf_util.stat_util import approx_equal, sample_gumbel
+import scipy
 from tf_util.tf_util import (
     get_flow_type_string,
     get_archstring,
@@ -10,6 +11,7 @@ from tf_util.tf_util import (
     min_barrier, 
     quartic_roots,
     gumbel_softmax_trick,
+    gumbel_softmax_log_density,
 )
 
 DTYPE = tf.float64
@@ -69,6 +71,15 @@ def gumbel_softmax_trick_np(G, alpha, tau):
         numerator = np.exp((np.log(alpha) + G[i])/tau)
         C[i] = numerator / np.sum(numerator)
     return C
+
+def gumbel_softmax_log_density_np(c, alpha, tau):
+    K = c.shape[0]
+    log_p_c = scipy.special.loggamma(K)
+    log_p_c += (K-1)*np.log(tau)
+    log_p_c += -K*np.log(np.sum(alpha / np.power(c, tau)))
+    log_p_c += np.sum(np.log(alpha / np.power(c, tau+1)))
+    return log_p_c
+    
 
 def test_get_flow_type_string():
     flow_types = ["AffineFlow",
@@ -265,6 +276,31 @@ def test_gumbel_softmax_trick():
     assert(np.sum(np.isnan(_C)) + np.sum(np.isinf(_C)) == 0)
     return None
 
+def test_gumbel_softmax_log_density():
+    M = 100
+    Ks = [1, 3, 5, 10, 20]
+    for K in Ks:
+        tau = 0.05
+        _alpha = np.random.uniform(0.0, 1.0, (K,))
+        _alpha = _alpha / np.sum(_alpha)
+        alpha = tf.placeholder(tf.float64, (K,))
+        
+        G = sample_gumbel(M, K)
+        _C = gumbel_softmax_trick_np(G, _alpha, tau)
+        C = tf.placeholder(tf.float64, (M,K))
+        log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
+
+        log_p_c_np = np.zeros((M,))
+        for i in range(M):
+            log_p_c_np[i] = gumbel_softmax_log_density_np(_C[i], _alpha, tau)
+
+        with tf.Session() as sess:
+            _log_p_c = sess.run(log_p_c, {C:_C, alpha:_alpha})
+
+        assert(approx_equal(log_p_c_np, _log_p_c, EPS))
+        assert(np.sum(np.isnan(_log_p_c) + np.isinf(_log_p_c)) == 0)
+    return None
+
 
 def test_min_barrier():
     M = 1000
@@ -451,6 +487,8 @@ def test_quartic_formula():
 
 if __name__ == "__main__":
     np.random.seed(0)
+    test_gumbel_softmax_log_density()
+    """
     test_get_flow_type_string()
     test_get_archstring()
     test_gumbel_softmax_trick()
@@ -460,5 +498,4 @@ if __name__ == "__main__":
     test_log_grads()
     test_sort_quartic_roots()
     test_quartic_formula()
-
-
+    """

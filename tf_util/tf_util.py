@@ -16,13 +16,14 @@
 import tensorflow as tf
 import numpy as np
 import os
-
+import scipy
 from tf_util.normalizing_flows import (
     PlanarFlow,
     ShiftFlow,
     ElemMultFlow,
     get_flow_class,
     get_density_network_inits,
+    get_mixture_density_network_inits,
     RealNVP,
 )
 
@@ -117,14 +118,14 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
 def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None):
     """
-        G (int tf.tensor) : (1 x M) Gumble random variables
+        G (int tf.tensor) : (1 x M x K) Gumble random variables
         W (tf.tensor) : (1 x M x D) isotropic noise
     """
+    print('here!')
     D = arch_dict["D"]
     K = arch_dict["K"]
     assert(K > 1)
-    is_shared = arch_dict["shared_network"]
-    gaussian_inits, density_network_inits = get_mixture_density_network_inits(arch_dict)
+    gaussian_inits, inits_by_layer, dims_by_layer = get_mixture_density_network_inits(arch_dict)
     print("Got random initialization.")
 
     # declare layer parameters with initializations
@@ -136,9 +137,10 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             mus = []
             sigmas = []
             for k in range(K):
-                mu_k_init, sigma_k_init = gaussian_inits[k]
-                mu_k = tf.get_variable('mu_%d' % (k+1), dtype=tf.float64, init=mu_k_init)
-                sigma_k = tf.get_variable('sigma_%d' % (k+1), dtype=tf.float64, init=sigma_k_init)
+                mu_k_init, log_sigma_k_init = gaussian_inits[k]
+                mu_k = tf.get_variable('mu_%d' % (k+1), dtype=tf.float64, initializer=mu_k_init)
+                log_sigma_k = tf.get_variable('log_sigma_%d' % (k+1), dtype=tf.float64, initializer=log_sigma_k_init)
+                sigma_k = tf.exp(log_sigma_k)
                 mus.append(mu_k)
                 sigmas.append(sigma_k)
                 mixture_of_gaussians.append((mu_k, sigma_k))
@@ -149,72 +151,73 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             tau = 0.05
             beta = tf.get_variable('beta', (K-1,), tf.float64)
             exp_beta = tf.exp(beta)
-            alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64))) \
+            alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64)), 0) \
                     / (tf.reduce_sum(exp_beta) + 1.0)
             C = gumbel_softmax_trick(G, alpha, tau) # (M x K)
 
             # select mu_k and sigma_k accordingly
             C_dot_mu = tf.matmul(C, mu) # (M x D)
             C_dot_sigma = tf.matmul(C, sigma) # (M x D)
+            Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
+            Z = tf.expand_dims(Z, 0)
 
             # write code for density for mixture of gaussians
+            log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
+            sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
 
-        Z = C_dot_mu + tf.multiply(C_dot_sigma, W)
 
-        if (is_shared):
-            flow_layers = []
-            sum_log_det_jacobians = 0.0
-            ind = 0
+        #if (is_shared): Can't actually use K different density networks with MoG
+        # If want to use different density networks, we need to use RaD or similar
+        flow_layers = []
+        ind = 0
 
-            flow_class = get_flow_class(arch_dict["flow_type"])
-            for i in range(arch_dict["repeats"]):
-                with tf.variable_scope("Layer%d" % (i+1)):
-                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                    if (flow_class == PlanarFlow):
-                        flow_layer = flow_class(params, Z)
-                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    elif (flow_class == RealNVP):
-                        real_nvp_arch = arch_dict['real_nvp_arch']
-                        num_masks = real_nvp_arch['num_masks']
-                        real_nvp_layers = real_nvp_arch['nlayers']
-                        upl = real_nvp_arch['upl']
-                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
-                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    else:
-                        raise NotImplementedError()
-                    sum_log_det_jacobians += log_det_jacobian
-                    flow_layers.append(flow_layer)
-                    ind += 1
-
-            if arch_dict["post_affine"]:
-                with tf.variable_scope("PostMultLayer"):
-                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                    flow_layer = ElemMultFlow(params, Z)
+        flow_class = get_flow_class(arch_dict["flow_type"])
+        for i in range(arch_dict["repeats"]):
+            with tf.variable_scope("Layer%d" % (i+1)):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if (flow_class == PlanarFlow):
+                    flow_layer = flow_class(params, Z)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    sum_log_det_jacobians += log_det_jacobian
-                    flow_layers.append(flow_layer)
-                    ind += 1
-
-                with tf.variable_scope("PostShiftLayer"):
-                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                    flow_layer = ShiftFlow(params, Z)
+                elif (flow_class == RealNVP):
+                    real_nvp_arch = arch_dict['real_nvp_arch']
+                    num_masks = real_nvp_arch['num_masks']
+                    real_nvp_layers = real_nvp_arch['nlayers']
+                    upl = real_nvp_arch['upl']
+                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    sum_log_det_jacobians += log_det_jacobian
-                    flow_layers.append(flow_layer)
-                    ind += 1
-                    jjjj
+                else:
+                    raise NotImplementedError()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+        if arch_dict["post_affine"]:
+            with tf.variable_scope("PostMultLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ElemMultFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
+            with tf.variable_scope("PostShiftLayer"):
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                flow_layer = ShiftFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                sum_log_det_jacobians += log_det_jacobian
+                flow_layers.append(flow_layer)
+                ind += 1
+
         # need to add support mapping
         if support_mapping is not None:
             with tf.variable_scope("SupportMapping"):
                 final_layer = support_mapping(Z)
-                Z, log_det_jacobian = final_layer.forward_and_jacobian()
+                Z, log_det_jacobian = final_layer.forward_and_jacobian() 
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(final_layer)
 
-        return Z, sum_log_det_jacobians, flow_layers
+    return Z, sum_log_det_jacobians, log_p_c, flow_layers, alpha
 
-    else:
-        raise NotImplementedError()
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
@@ -227,7 +230,19 @@ def gumbel_softmax_trick(G, alpha, tau):
     C = tf.divide(C_unnorm, tf.expand_dims(tf.reduce_sum(C_unnorm, 1), 1))
     return C
     
-
+def gumbel_softmax_log_density(K, C, alpha, tau):
+    """
+        G (int tf.tensor) : (M x K) Gumble random variables
+        alpha (tf.tensor) : (K,) cluster prob
+        tau (scalar) : temperature of the Gumbel dist
+    """
+    alpha = tf.expand_dims(alpha, 0)
+    log_gamma = scipy.special.loggamma(K)
+    log_tau = np.log(tau)
+    log_sum = tf.log(tf.reduce_sum(tf.divide(alpha, tf.pow(C, tau)), 1))
+    sum_log = tf.reduce_sum(tf.log(alpha) - (tau+1)*tf.log(C), 1)
+    log_p_c = log_gamma + (K-1)*log_tau - K*log_sum + sum_log
+    return log_p_c
 
 def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
     # set file I/O stuff
@@ -869,7 +884,6 @@ def get_archstring(arch_dict):
 
         """
     K = arch_dict["K"] # mixture components
-    is_shared = arch_dict["shared_network"]
     flow_type = arch_dict["flow_type"]
     repeats = arch_dict["repeats"]
 
@@ -879,8 +893,6 @@ def get_archstring(arch_dict):
         arch_str = ""
     elif K > 1:
         arch_str = "K=%d_" % K
-        if is_shared:
-            arch_str += "shared_"
     else:
         print('Error: K must be positive integer.')
         exit()
