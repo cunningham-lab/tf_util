@@ -221,7 +221,7 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(final_layer)
 
-    return Z, sum_log_det_jacobians, log_p_c, flow_layers, alpha
+    return Z, sum_log_det_jacobians, log_p_c, flow_layers, alpha, C
 
 
 def gumbel_softmax_trick(G, alpha, tau):
