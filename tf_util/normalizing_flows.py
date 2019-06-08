@@ -204,6 +204,16 @@ def get_density_network_inits(arch_dict):
 
     return inits_by_layer, dims_by_layer
 
+def binary_mu(k, D):
+    mu = -1*np.ones((D,))
+    for i in range(D,-1,-1):
+        pow2 = 2**i
+        if k - pow2 >= 0:
+            k = k-pow2
+            mu[i] = 1
+    return mu
+
+    
 
 def get_mixture_density_network_inits(arch_dict):
     D = arch_dict["D"]
@@ -211,9 +221,13 @@ def get_mixture_density_network_inits(arch_dict):
     assert(K > 1)
 
     MoG_inits = []
+    assert(K <= np.power(2,D))
     for k in range(K):
-        mu_k_init = tf.constant(np.random.normal(0.0, 1.0, (D,)), tf.float64)
-        log_sigma_k_init = tf.zeros((D,), tf.float64)
+        mu_k = binary_mu(k, D)
+        print(k, 'mu_k')
+        print(mu_k)
+        mu_k_init = tf.constant(mu_k)
+        log_sigma_k_init = -2.3*tf.ones((D,), tf.float64)
         MoG_inits.append((mu_k_init, log_sigma_k_init))
 
     num_networks = 1

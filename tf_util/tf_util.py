@@ -121,12 +121,16 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
         G (int tf.tensor) : (1 x M x K) Gumble random variables
         W (tf.tensor) : (1 x M x D) isotropic noise
     """
-    print('here!')
     D = arch_dict["D"]
     K = arch_dict["K"]
     assert(K > 1)
-    gaussian_inits, inits_by_layer, dims_by_layer = get_mixture_density_network_inits(arch_dict)
-    print("Got random initialization.")
+    if initdir is None:
+        gaussian_inits, inits_by_layer, dims_by_layer = get_mixture_density_network_inits(arch_dict)
+        print("Got random initialization.")
+    else:
+        gaussian_inits, _, _ = get_mixture_density_network_inits(arch_dict)
+        inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
+        print("MoG init with tuned density net.")
 
     # declare layer parameters with initializations
     params = []
@@ -149,7 +153,8 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
 
             # Gumbel Softmax Trick
             tau = 0.05
-            beta = tf.get_variable('beta', (K-1,), tf.float64)
+            beta_init = tf.zeros((K-1,), tf.float64)
+            beta = tf.get_variable('beta', initializer=beta_init)
             exp_beta = tf.exp(beta)
             alpha = tf.concat((exp_beta, tf.ones((1,), tf.float64)), 0) \
                     / (tf.reduce_sum(exp_beta) + 1.0)
@@ -247,7 +252,7 @@ def gumbel_softmax_log_density(K, C, alpha, tau):
 def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
     # set file I/O stuff
     prefix = "data/inits/"
-    archstring = get_archstring(arch_dict)
+    archstring = get_archstring(arch_dict, init=True)
 
     init_mu_str = "%.2f" % system.density_network_init_mu[0]
     if system.D > 1:
@@ -873,7 +878,7 @@ def get_mep_archstring(arch_dict):
     else:
         return arch_str
 
-def get_archstring(arch_dict):
+def get_archstring(arch_dict, init=False):
     """Get string description of density network.
 
         Args:
@@ -889,7 +894,7 @@ def get_archstring(arch_dict):
 
     flow_type_str = get_flow_type_string(arch_dict)
 
-    if K == 1:
+    if K == 1 or init:
         arch_str = ""
     elif K > 1:
         arch_str = "K=%d_" % K
