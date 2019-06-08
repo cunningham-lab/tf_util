@@ -187,9 +187,9 @@ def get_density_network_inits(arch_dict):
     flow_type = get_flow_class(arch_dict["flow_type"])
     for i in range(arch_dict["repeats"]):
         if (flow_type == RealNVP):
-            inits, dims = get_flow_param_inits(TIF_flow, D, arch_dict['real_nvp_arch'])
+            inits, dims = get_flow_param_inits(flow_type, D, arch_dict['real_nvp_arch'])
         else:
-            inits, dims = get_flow_param_inits(TIF_flow, D)
+            inits, dims = get_flow_param_inits(flow_type, D)
         inits_by_layer.append(inits)
         dims_by_layer.append(dims)
 
@@ -209,18 +209,14 @@ def get_mixture_density_network_inits(arch_dict):
     D = arch_dict["D"]
     K = arch_dict["K"]
     assert(K > 1)
-    is_shared = arch_dict["shared_network"]
 
     MoG_inits = []
     for k in range(K):
         mu_k_init = tf.constant(np.random.normal(0.0, 1.0, (D,)), tf.float64)
-        sigma_k_init = tf.constant(np.ones((D,), np.float64))
-        MoG_inits.append((mu_k, sigma_k))
+        log_sigma_k_init = tf.zeros((D,), tf.float64)
+        MoG_inits.append((mu_k_init, log_sigma_k_init))
 
-    if (is_shared):
-        num_networks = 1
-    else:
-        num_networks = K
+    num_networks = 1
 
     flow_type = get_flow_class(arch_dict["flow_type"])
     for k in range(num_networks):
@@ -228,9 +224,9 @@ def get_mixture_density_network_inits(arch_dict):
         dims_by_layer = []
         for i in range(arch_dict["repeats"]):
             if (flow_type == RealNVP):
-                inits, dims = get_flow_param_inits(TIF_flow, D, arch_dict['real_nvp_arch'])
+                inits, dims = get_flow_param_inits(flow_type, D, arch_dict['real_nvp_arch'])
             else:
-                inits, dims = get_flow_param_inits(TIF_flow, D)
+                inits, dims = get_flow_param_inits(flow_type, D)
             inits_by_layer.append(inits)
             dims_by_layer.append(dims)
 
@@ -242,9 +238,8 @@ def get_mixture_density_network_inits(arch_dict):
             shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
             inits_by_layer.append(em_inits)
             dims_by_layer.append(em_dims)
-        density_network_inits.append((inits_by_layer, dims_by_layer))
 
-    return MoG_inits, density_network_inits
+    return MoG_inits, inits_by_layer, dims_by_layer
 
 
 # Time invariant flows
