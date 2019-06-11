@@ -1,0 +1,23 @@
+\begin{thebibliography}{1}
+
+\bibitem{rezende2015variational}
+Danilo~Jimenez Rezende and Shakir Mohamed.
+\newblock Variational inference with normalizing flows.
+\newblock {\em arXiv preprint arXiv:1505.05770}, 2015.
+
+\bibitem{dinh2019rad}
+Laurent Dinh, Jascha Sohl-Dickstein, Razvan Pascanu, and Hugo Larochelle.
+\newblock A rad approach to deep mixture models.
+\newblock {\em arXiv preprint arXiv:1903.07714}, 2019.
+
+\bibitem{loaiza2017maximum}
+Gabriel Loaiza-Ganem, Yuanjun Gao, and John~P Cunningham.
+\newblock Maximum entropy flow networks.
+\newblock {\em arXiv preprint arXiv:1701.03504}, 2017.
+
+\bibitem{jang2016categorical}
+Eric Jang, Shixiang Gu, and Ben Poole.
+\newblock Categorical reparameterization with gumbel-softmax.
+\newblock {\em arXiv preprint arXiv:1611.01144}, 2016.
+
+\end{thebibliography}
