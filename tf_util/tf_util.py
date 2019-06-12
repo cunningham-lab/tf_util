@@ -299,7 +299,7 @@ def check_init(initdir):
     resfname = initdir + "opt_info.npz"
     check_passed = False
     if os.path.exists(initfname):
-        resfile = np.load(resfname)
+        resfile = np.load(resfname, allow_pickle=True)
         # Make sure it has converged
         if not resfile["converged"]:
             print("Error: Found init file, but optimiation has not converged.")
@@ -311,7 +311,7 @@ def check_init(initdir):
 
 
 def load_nf_init(initdir, arch_dict):
-    initfile = np.load(initdir + "theta.npz")
+    initfile = np.load(initdir + "theta.npz", allow_pickle=True)
     theta = initfile["theta"][()]
     scope = "DensityNetwork"
     inits_by_layer = []
