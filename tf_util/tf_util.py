@@ -171,7 +171,7 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             #sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
             q_w = tf.reduce_prod(tf.exp((-tf.square(W)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2) # (1 x M)
             mean_prod_sigmas = tf.reduce_mean(tf.reduce_prod(C_dot_sigma, 1), 0)
-            log_base_density = q_w / mean_prod_sigmas
+            log_base_density = tf.log(q_w / mean_prod_sigmas)
 
             sum_log_det_jacobians = 0.0
             
