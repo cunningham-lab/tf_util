@@ -766,7 +766,7 @@ def test_affine_flows():
     eval_flow_at_dim(AffineFlow, affine_flow, 4, K, n)
     eval_flow_at_dim(AffineFlow, affine_flow, 20, K, n)
     eval_flow_at_dim(AffineFlow, affine_flow, 100, K, n)
-    eval_flow_at_dim(AffineFlow, affine_flow, 300, K, n)
+    #eval_flow_at_dim(AffineFlow, affine_flow, 300, K, n) 
     print("Affine flows passed.")
     return None
 
