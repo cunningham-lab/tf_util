@@ -166,11 +166,15 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
             Z = tf.expand_dims(Z, 0)
 
-            # write code for density for mixture of gaussians
-            log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
-            sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
+            # write density calculation
+            #log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
+            #sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
+            q_w = tf.reduce_prod(tf.exp((-tf.square(W)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2) # (1 x M)
+            mean_prod_sigmas = tf.reduce_mean(tf.reduce_prod(C_dot_sigma, 1), 0)
+            log_base_density = q_w / mean_prod_sigmas
 
-
+            sum_log_det_jacobians = 0.0
+            
         #if (is_shared): Can't actually use K different density networks with MoG
         # If want to use different density networks, we need to use RaD or similar
         flow_layers = []
@@ -221,7 +225,7 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(final_layer)
 
-    return Z, sum_log_det_jacobians, log_p_c, flow_layers, alpha, C
+    return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
 
 
 def gumbel_softmax_trick(G, alpha, tau):
