@@ -140,7 +140,6 @@ def test_get_archstring():
     repeats = 10
     arch_dict = {"D": D,
                  "K": 1,
-                 "shared_network": True,
                  "flow_type": flow_type,
                  "repeats": repeats,
                  "post_affine": True}
@@ -150,8 +149,6 @@ def test_get_archstring():
     arch_dict.update({"repeats":9})
     assert(get_archstring(arch_dict) == "9P")
     arch_dict.update({"K":4})
-    assert(get_archstring(arch_dict) == "K=4_shared_9P")
-    arch_dict.update({"shared_network":False})
     assert(get_archstring(arch_dict) == "K=4_9P")
     arch_dict.update({"repeats":11})
     assert(get_archstring(arch_dict) == "K=4_11P")
