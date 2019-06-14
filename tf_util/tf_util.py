@@ -164,14 +164,21 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             C_dot_mu = tf.matmul(C, mu) # (M x D)
             C_dot_sigma = tf.matmul(C, sigma) # (M x D)
             Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
-            Z = tf.expand_dims(Z, 0)
+            Z = tf.expand_dims(Z, 0) # (1 x M x D)
 
             # write density calculation
             #log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
             #sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
-            q_w = tf.reduce_prod(tf.exp((-tf.square(W)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2) # (1 x M)
-            mean_prod_sigmas = tf.reduce_mean(tf.reduce_prod(C_dot_sigma, 1), 0)
-            log_base_density = tf.log(q_w / mean_prod_sigmas)
+            #log_q_w = tf.reduce_sum((-tf.square(W) / 2.0) - np.log(np.sqrt(2.0 * np.pi)), 2)
+            #q_w = tf.reduce_prod(tf.exp((-tf.square(W)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2) # (1 x M)
+            #mean_prod_sigmas = tf.reduce_mean(tf.reduce_prod(C_dot_sigma, 1), 0)
+            #log_base_density = log_q_w - tf.log(mean_prod_sigmas)
+            C_dot_mu = tf.expand_dims(C_dot_mu, 1)
+            C_dot_sigma = tf.expand_dims(C_dot_sigma, 1)
+            p_z0_mid_c = tf.reduce_prod(tf.divide(tf.exp(tf.divide(-tf.square(Z-C_dot_mu), 2.0*C_dot_sigma)), 
+                                            np.sqrt(2.0 *np.pi)*C_dot_sigma), axis=2) # (1 x M)
+            p_z0 = tf.reduce_mean(p_z0_mid_c, 0)
+            log_base_density = tf.expand_dims(tf.log(p_z0), 0)
 
             sum_log_det_jacobians = 0.0
             
@@ -225,7 +232,7 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(final_layer)
 
-    return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
+    return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
 
 
 def gumbel_softmax_trick(G, alpha, tau):
