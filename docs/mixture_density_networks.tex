@@ -97,7 +97,7 @@ For a given forward pass, we sample $c_i \sim p(c \mid \alpha, \tau)$ and $w_i \
 \[\mu_i = c_i^\top \mu \]
 \[\sigma_i = c_i^\top \sigma \]
 We can then generate $z_{0, i}$ by calculating
-\[z_{0,i} = \mu_i + \omega \cdot \sigma_i \]
+\[z_{0,i} = \mu_i + \omega_i \cdot \sigma_i \]
 
 The probability of a single sample from the entire mixture density network is then
 \[p(z_{L,i}) = p(z_{0,i})  \prod_{l=1}^L \left| \det \frac{\partial g_l(z_{l-1,i})}{\partial z_{l-1,i}} \right| \]
@@ -105,10 +105,11 @@ and accordingly the log density is
 \[\log p(z_{L,i}) = \log p(z_0,i) - \sum_{l=1}^L \log \left| \det \frac{\partial g_l(z_{l-1,i})}{\partial z_{l-1,i}} \right| \]
 with
 \[\log p(z_{0,i}) = \log \left( \int p(z_{0,i} \mid c_i) p(c_i) d c_i \right) \]
+
 We can approximate $p(z_{0,i})$ by
-\[p(z_{0,i}) =  \int p(z_{0,i} \mid c_i) p(c_i) d c_i \approx E_{p(c_i)} \left[p(z_{0,i} \mid c_i) \right] \]
-This means we will need to sample a nested minibatch to compute the base density for each sample.  We can easily compute $a$ by
- \[ p(z_{0,i} \mid c_i) = \frac{\mathcal{N}(\omega_i; 0, 1)}{\left| \prod_{d=1}^D \sigma_{i,d} \right|} \]
+\[p(z_{0,i}) =  \int p(z_{0,i} \mid c_j) p(c_J) d c_j \approx E_{p(c_j)} \left[p(z_{0,i} \mid c_j) \right] \]
+This means we will need to sample a nested minibatch to compute the base density for each sample.  We can easily compute $p(z_{0,i} \mid c)$ by
+ \[ p(z_{0,i} \mid c_j) = \mathcal{N}(z_{0,i}; \mu_j, \sigma_j)\]
 
 The full log probability of minibatch sample $i$ is then:
 \[\log( p (z_{L,i})) \approx \log \left(  E_{p(c_i)} \left[p(z_{0,i} \mid c_i) \right] \right) - \sum_{l=1}^L \log \left| \det \frac{\partial g_l(z_{l-1,i})}{\partial z_{l-1,i}} \right| \]
