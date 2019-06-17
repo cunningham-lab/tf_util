@@ -57,7 +57,7 @@ def get_num_flow_params(flow_class, D, opt_params={}):
     if flow_class == AffineFlow:
         return D * (D + 1)
     elif flow_class == CholProdFlow:
-        raise NotImplementedError()
+        return 0
     elif flow_class == ElemMultFlow:
         return D
     elif flow_class == ExpFlow:

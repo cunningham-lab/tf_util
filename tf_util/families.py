@@ -234,7 +234,6 @@ class PosteriorFamily(Family):
 
 	Attributes:
 		D (int): Dimensionality of the exponential family.
-		T (int): Number of time points.
 		D_Z (int): Dimensionality of the density network.
 		num_T_z_inputs (int): Number of param-dependent inputs to suff stat comp
 		                      (only used in HierarchicalDirichlet).
@@ -248,16 +247,15 @@ class PosteriorFamily(Family):
 
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """posterior family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
 			eta_dist (dict): Specifies the prior on the natural parameter, eta.
 
 		"""
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.D_Z = None
         self.num_prior_suff_stats = None
         self.num_likelihood_suff_stats = None
@@ -661,9 +659,7 @@ class Dirichlet(Family):
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        log_Z = tf.log(Z)
-        T_z_log = tf.reduce_mean(log_Z, 3)
-        T_z = T_z_log
+        T_z = tf.log(Z)
         return T_z
 
     def compute_mu(self, params):
@@ -692,9 +688,8 @@ class Dirichlet(Family):
 			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        assert self.T == 1
-        log_h_z = -tf.reduce_sum(tf.log(Z), [2])
-        return log_h_z[:, :, 0]
+        log_h_z = -tf.reduce_sum(tf.log(Z), 2)
+        return log_h_z
 
     def default_eta_dist(self,):
         """Construct default eta prior.
@@ -1097,15 +1092,14 @@ class HierarchicalDirichlet(PosteriorFamily):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """hierarchical_dirichlet family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
 		"""
 
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "HierarchicalDirichlet"
         self.has_support_map = True
         self.D_Z = D - 1
@@ -1139,14 +1133,13 @@ class HierarchicalDirichlet(PosteriorFamily):
 
 		"""
 
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        logz = tf.log(Z[:, :, :, 0])
+        logz = tf.log(Z)
         const = -tf.ones((K, M, 1), DTYPE)
         beta = tf.expand_dims(T_z_input, 1)
-        betaz = tf.multiply(beta, Z[:, :, :, 0])
+        betaz = tf.multiply(beta, Z)
         log_gamma_beta_z = tf.lgamma(betaz)
         log_gamma_beta = tf.lgamma(beta)
         log_Beta_beta_z = (
@@ -1165,7 +1158,6 @@ class HierarchicalDirichlet(PosteriorFamily):
 			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
@@ -1300,24 +1292,21 @@ class DirichletMultinomial(PosteriorFamily):
 
 	Attributes:
 		D (int): dimensionality of the exponential family
-		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
 		num_suff_stats (int): total number of suff stats
 		num_T_z_inputs (int): number of param-dependent inputs to suff stat comp.
-		                      (only necessary for hierarchical dirichlet)
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """dirichlet_multinomial family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
 		"""
 
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "DirichletMultinomial"
         self.has_support_map = True
         self.D_Z = D - 1
@@ -1350,11 +1339,10 @@ class DirichletMultinomial(PosteriorFamily):
 
 		"""
 
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
-        logz = tf.log(Z[:, :, :, 0])
+        logz = tf.log(Z)
         const = -tf.ones((K, M, 1), DTYPE)
         zeros = -tf.zeros((K, M, 1), DTYPE)
         T_z = tf.concat((logz, const, logz, zeros), 2)
@@ -1370,7 +1358,6 @@ class DirichletMultinomial(PosteriorFamily):
 			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
@@ -1483,7 +1470,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None):
+    def __init__(self, D, eta_dist=None):
         """truncated_normal_poisson family constructor
 
 		Args:
@@ -1491,7 +1478,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
 			T (int): number of time points. Defaults to 1.
 		"""
 
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "TruncatedNormalPoisson"
         self.has_support_map = True
         self.D_Z = D
@@ -1499,7 +1486,7 @@ class TruncatedNormalPoisson(PosteriorFamily):
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
         self.num_T_z_inputs = 0
-        self.prior_family = MultivariateNormal(D, T)
+        self.prior_family = MultivariateNormal(D)
 
     def support_mapping(self, inputs):
         """Maps from real numbers to support of parameters.
@@ -1526,14 +1513,13 @@ class TruncatedNormalPoisson(PosteriorFamily):
 
 		"""
 
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
         T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
         const = -tf.ones((K, M, 1), dtype=DTYPE)
-        logz = tf.log(Z[:, :, :, 0])
-        sumz = tf.expand_dims(tf.reduce_sum(Z[:, :, :, 0], 2), 2)
+        logz = tf.log(Z)
+        sumz = tf.expand_dims(tf.reduce_sum(Z, 2), 2)
         T_z = tf.concat((T_z_prior, const, logz, sumz), 2)
         return T_z
 
@@ -1547,7 +1533,6 @@ class TruncatedNormalPoisson(PosteriorFamily):
 			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
@@ -1713,7 +1698,6 @@ class LogGaussianCox(PosteriorFamily):
 
 	Attributes:
 		D (int): dimensionality of the exponential family
-		T (int): number of time points
 		D_Z (int): dimensionality of the density network
 		num_prior_suff_stats (int): number of suff stats that come from prior
 		num_likelihood_suff_stats (int): " " from likelihood
@@ -1722,15 +1706,14 @@ class LogGaussianCox(PosteriorFamily):
 		                      (only necessary for hierarchical dirichlet)
 	"""
 
-    def __init__(self, D, T=1, eta_dist=None, prior=[]):
+    def __init__(self, D, eta_dist=None, prior=[]):
         """truncated_normal_poisson family constructor
 
 		Args:
 			D (int): dimensionality of the exponential family
-			T (int): number of time points. Defaults to 1.
 		"""
 
-        super().__init__(D, T, eta_dist)
+        super().__init__(D, eta_dist)
         self.name = "LogGaussianCox"
         self.has_support_map = True
         self.D_Z = D
@@ -1738,7 +1721,7 @@ class LogGaussianCox(PosteriorFamily):
         self.num_likelihood_suff_stats = D + 1
         self.num_suff_stats = self.num_prior_suff_stats + self.num_likelihood_suff_stats
         self.num_T_z_inputs = 0
-        self.prior_family = MultivariateNormal(D, T)
+        self.prior_family = MultivariateNormal(D)
         self.prior = prior
         self.data_num_resps = None
         self.train_set = None
@@ -1793,9 +1776,8 @@ class LogGaussianCox(PosteriorFamily):
         M = Z_shape[1]
         T_z_prior = self.prior_family.compute_suff_stats(Z, Z_by_layer, T_z_input)
         const = -tf.ones((K, M, 1), dtype=DTYPE)
-        z = Z[:, :, :, 0]
-        sum_exp_z = tf.expand_dims(tf.reduce_sum(tf.exp(Z[:, :, :, 0]), 2), 2)
-        T_z = tf.concat((T_z_prior, const, z, sum_exp_z), 2)
+        sum_exp_z = tf.expand_dims(tf.reduce_sum(tf.exp(Z), 2), 2)
+        T_z = tf.concat((T_z_prior, const, Z, sum_exp_z), 2)
         return T_z
 
     def compute_log_base_measure(self, Z):
@@ -1808,7 +1790,6 @@ class LogGaussianCox(PosteriorFamily):
 			log_h_z (tf.Tensor): Log base measure of samples.
 			
 		"""
-        assert self.T == 1
         Z_shape = tf.shape(Z)
         K = Z_shape[0]
         M = Z_shape[1]
@@ -2048,6 +2029,11 @@ class LogGaussianCox(PosteriorFamily):
         return None
 
 
+
+
+"""
+Everything below is for a completely different project Maximum Entropy Processes
+"""
 class SurrogateSD(Family):
     """Maximum entropy distribution with smoothness (S) and dim (D) constraints.
 

@@ -19,6 +19,7 @@ import os
 import scipy
 from tf_util.normalizing_flows import (
     PlanarFlow,
+    AffineFlow,
     ShiftFlow,
     ElemMultFlow,
     get_flow_class,
@@ -72,7 +73,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         for i in range(arch_dict["repeats"]):
             with tf.variable_scope("Layer%d" % (i+1)):
                 params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                if (flow_class == PlanarFlow):
+                if (flow_class in [PlanarFlow, AffineFlow]):
                     flow_layer = flow_class(params, Z)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 elif (flow_class == RealNVP):
