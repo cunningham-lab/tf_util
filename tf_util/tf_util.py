@@ -51,19 +51,24 @@ def init_layer_params(inits, dims, layer_ind):
 
 
 
-def density_network(W, arch_dict, support_mapping=None, initdir=None):
-    D = arch_dict["D"]
-    if initdir is None:
-        inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
-    else:
-        inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
-        print("Loaded optimized initialization.")
+def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None):
+    connect_params = theta is not None
 
-    num_layers = len(inits_by_layer)
+    if (initdir is not None) and  connect_params:
+        print('Usage error: An initialization directory provided when connecting a parameter network (connect_params==True).  Either initdir must be None or connect params must be False.')
+        exit()
+
+    D = arch_dict["D"]
+    if (not connect_params):
+        if initdir is None:
+            inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
+        else:
+            inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
+            print("Loaded optimized initialization.")
+
     # declare layer parameters with initializations
     params = []
     with tf.variable_scope("DensityNetwork"):
-
         Z = W
         flow_layers = []
         sum_log_det_jacobians = 0.0
@@ -72,7 +77,11 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
         flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
             with tf.variable_scope("Layer%d" % (i+1)):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if (connect_params):
+                    params = theta[ind]
+                else:
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+
                 if (flow_class in [PlanarFlow, AffineFlow]):
                     flow_layer = flow_class(params, Z)
                     Z, log_det_jacobian = flow_layer.forward_and_jacobian()
@@ -91,7 +100,10 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
 
         if arch_dict["post_affine"]:
             with tf.variable_scope("PostMultLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if connect_params:
+                    params = theta[ind]
+                else:
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
                 flow_layer = ElemMultFlow(params, Z)
                 Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
@@ -99,7 +111,10 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None):
                 ind += 1
 
             with tf.variable_scope("PostShiftLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                if connect_params:
+                    params = theta[ind]
+                else:
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
                 flow_layer = ShiftFlow(params, Z)
                 Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
@@ -644,43 +659,6 @@ def connect_density_network(W, layers, theta, ts=None):
             )
         Z_by_layer.append(Z)
     return Z, sum_log_det_jacobians, Z_by_layer
-
-
-def count_layer_params(layer):
-    """Count number of params in a normalizing flow layer.
-
-        Args:
-            layer (Layer): Instance of a normalizing flow.
-
-        Returns:
-            num_params (int): The total number of parameters in the layer.
-
-    """
-    num_params = 0
-    name, param_names, dims, _, _ = layer.get_layer_info()
-    nparams = len(dims)
-    for j in range(nparams):
-        num_params += np.prod(dims[j])
-    return num_params
-
-
-def count_params(all_params):
-    """Count total parameters in the model.
-
-        Args:
-            all_params (list): List of tf.Variables.
-
-        Returns:
-            nparam_vals (int): The total number of parameters in the model.
-
-    """
-    nparams = len(all_params)
-    nparam_vals = 0
-    for i in range(nparams):
-        param = all_params[i]
-        param_shape = tuple(param.get_shape().as_list())
-        nparam_vals += np.prod(param_shape)
-    return nparam_vals
 
 
 def log_grads(cost_grads, cost_grad_vals, ind):
