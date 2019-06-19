@@ -97,22 +97,26 @@ def get_num_flow_params(flow_class, D, opt_params={}):
     else:
         raise NotImplementedError()
 
-def count_params(arch_dict, D_Z):
+def count_params(arch_dict):
     """Count total parameters in the model.
 
         Args:
             arch_dict (dict): Specifies structure of approximating density network.
-            D_Z (int): Dimensionality of density network.
 
         Returns:
             nparams (int): The total number of parameters in the model.
 
     """
+    D = arch_dict['D']
+    K = arch_dict['K']
     flow_class = get_flow_class(arch_dict['flow_type'])
-    params_per_layer = get_num_flow_params(flow_class, D_Z)
+    params_per_layer = get_num_flow_params(flow_class, D)
     nparams = arch_dict['repeats']*params_per_layer
+    if (K > 1):
+        nparams += 2*K*D # mus and sigmas
+        nparams += (K-1) # beta
     if (arch_dict['post_affine']):
-        nparams += 2*D_Z
+        nparams += 2*D
     return nparams
 
 def get_flow_out_dim(flow_class, dim):
