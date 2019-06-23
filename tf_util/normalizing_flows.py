@@ -242,13 +242,15 @@ def get_mixture_density_network_inits(arch_dict):
     assert(K > 1)
 
     MoG_inits = []
-    assert(K <= np.power(2,D))
     for k in range(K):
-        mu_k = binary_mu(k, D)
-        print(k, 'mu_k')
-        print(mu_k)
+        log_sigma_fac = np.log(arch_dict['sigma0'])
+        #assert(K <= np.power(2,D))
+        #mu_k = binary_mu(k, D)
+        # arch is init to take in an iso gaussian
+        # uniform in this space is good coverage of 2SD in each dimension.
+        mu_k = np.random.uniform(-2.0, 2.0, (D,)) 
         mu_k_init = tf.constant(mu_k)
-        log_sigma_k_init = -2.3*tf.ones((D,), tf.float64)
+        log_sigma_k_init = log_sigma_fac*tf.ones((D,), tf.float64)
         MoG_inits.append((mu_k_init, log_sigma_k_init))
 
     num_networks = 1
