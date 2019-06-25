@@ -293,7 +293,7 @@ def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
             sysparams += "_%s" % system.free_params[i]
 
     if (system.density_network_bounds is not None):
-        initdir = prefix + "D=%d_%s%s_%s_mu=%s_sigma=%.2f_from_%.2f_to_%.2f_rs=%d/" % (
+        initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_from_%.2f_to_%.2f_rs=%d/" % (
                     system.D,
                     sysparams,
                     init_type,
