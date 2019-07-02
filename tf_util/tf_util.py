@@ -898,7 +898,7 @@ def get_archstring(arch_dict, init=False):
     if K == 1 or init:
         arch_str = ""
     elif K > 1:
-        arch_str = "K=%d_s0=%.1f" % (K, arch_dict['sigma0'])
+        arch_str = "K=%d_s0=%.1f_" % (K, arch_dict['sigma0'])
     else:
         print('Error: K must be positive integer.')
         exit()
