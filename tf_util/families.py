@@ -591,7 +591,10 @@ class TruncatedNormal(MultivariateNormal):
             Z (np.array): Samples from the DSN at the final layer.
         """
         if ((self.a is not None) and (self.b is not None)):
-            return IntervalFlow([], inputs, np.array([self.a]), np.array([self.b]))
+            if (type(self.a) == np.ndarray):
+                return IntervalFlow([], inputs, self.a, self.b)
+            else:
+                return IntervalFlow([], inputs, np.array([self.a]), np.array([self.b]))
         elif (self.b is None):
             # Should be softplus with an offset
             raise NotImplementedError()
