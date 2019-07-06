@@ -30,23 +30,26 @@ from tf_util.normalizing_flows import (
 
 DTYPE = tf.float64
 
-def init_layer_params(inits, dims, layer_ind):
+def init_layer_params(inits, dims, layer_ind, K=1):
     num_inits = len(inits)
     params = []
     for j in range(num_inits):
         varname_j = "theta_%d_%d" % (layer_ind, j + 1)
+        print(varname_j)
+        print(inits[j], dims[j])
         if isinstance(inits[j], tf.Tensor):
+            init_j = tf.tile(tf.expand_dims(inits[j], 0), (K, 1))
             var_j = tf.get_variable(
-                varname_j, dtype=DTYPE, initializer=inits[j]
+                varname_j, dtype=DTYPE, initializer=init_j
             )
         else:
             var_j = tf.get_variable(
                 varname_j,
-                shape=(dims[j],),
+                shape=(K, dims[j]),
                 dtype=DTYPE,
                 initializer=inits[j],
             )
-        params.append(tf.expand_dims(var_j,0))
+        params.append(var_j)
     return tf.concat(params, 1)
 
 
@@ -182,13 +185,6 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
             Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
             Z = tf.expand_dims(Z, 0) # (1 x M x D)
 
-            # write density calculation
-            #log_p_c = gumbel_softmax_log_density(K, C, alpha, tau)
-            #sum_log_det_jacobians = tf.reduce_sum(tf.log(tf.square(C_dot_sigma)), 1)
-            #log_q_w = tf.reduce_sum((-tf.square(W) / 2.0) - np.log(np.sqrt(2.0 * np.pi)), 2)
-            #q_w = tf.reduce_prod(tf.exp((-tf.square(W)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2) # (1 x M)
-            #mean_prod_sigmas = tf.reduce_mean(tf.reduce_prod(C_dot_sigma, 1), 0)
-            #log_base_density = log_q_w - tf.log(mean_prod_sigmas)
             C_dot_mu = tf.expand_dims(C_dot_mu, 1)
             C_dot_sigma = tf.expand_dims(C_dot_sigma, 1)
             p_z0_mid_c = tf.reduce_prod(tf.divide(tf.exp(tf.divide(-tf.square(Z-C_dot_mu), 2.0*C_dot_sigma)), 
@@ -198,25 +194,30 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
 
             sum_log_det_jacobians = 0.0
             
-        #if (is_shared): Can't actually use K different density networks with MoG
-        # If want to use different density networks, we need to use RaD or similar
         flow_layers = []
         ind = 0
 
+        ZT = tf.transpose(Z, [1, 0, 2]) # [M, 1, D] (do this so each flow param affects sample differently
         flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
             with tf.variable_scope("Layer%d" % (i+1)):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
+                print('C', C)
+                print('params', params)
+                params = tf.matmul(C, params) # (M x |theta_i|)
+                print('here!')
                 if (flow_class == PlanarFlow):
-                    flow_layer = flow_class(params, Z)
-                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    flow_layer = flow_class(params, ZT)
+                    ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    print(ZT.shape, log_det_jacobian.shape)
                 elif (flow_class == RealNVP):
                     real_nvp_arch = arch_dict['real_nvp_arch']
                     num_masks = real_nvp_arch['num_masks']
                     real_nvp_layers = real_nvp_arch['nlayers']
                     upl = real_nvp_arch['upl']
-                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
-                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    params = tf.matmul(C, params) # (M x |theta_i|)
+                    flow_layer = flow_class(params, ZT, num_masks, real_nvp_layers, upl)
+                    ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
                 else:
                     raise NotImplementedError()
                 sum_log_det_jacobians += log_det_jacobian
@@ -225,20 +226,25 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
 
         if arch_dict["post_affine"]:
             with tf.variable_scope("PostMultLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ElemMultFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
+                params = tf.matmul(C, params) # (M x |theta_i|)
+                flow_layer = ElemMultFlow(params, ZT)
+                ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(flow_layer)
                 ind += 1
 
             with tf.variable_scope("PostShiftLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-                flow_layer = ShiftFlow(params, Z)
-                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
+                params = tf.matmul(C, params) # (M x |theta_i|)
+                flow_layer = ShiftFlow(params, ZT)
+                ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(flow_layer)
                 ind += 1
+
+        Z = tf.transpose(ZT, [1, 0, 2])
+        sum_log_det_jacobians = tf.transpose(sum_log_det_jacobians)
 
         # need to add support mapping
         if support_mapping is not None:
