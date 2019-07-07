@@ -35,8 +35,6 @@ def init_layer_params(inits, dims, layer_ind, K=1):
     params = []
     for j in range(num_inits):
         varname_j = "theta_%d_%d" % (layer_ind, j + 1)
-        print(varname_j)
-        print(inits[j], dims[j])
         if isinstance(inits[j], tf.Tensor):
             init_j = tf.tile(tf.expand_dims(inits[j], 0), (K, 1))
             var_j = tf.get_variable(
@@ -255,7 +253,6 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                 flow_layers.append(final_layer)
 
     return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
-
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
@@ -950,6 +947,15 @@ def get_flow_type_string(arch_dict):
     elif (flow_type == "TanhFlow"):
         flow_type_str = "Tanh"
     return flow_type_str 
+
+def tile_for_conditions(tensor_list, num_conds):
+    num_tensors = len(tensor_list)
+    tiled = []
+    for i in range(num_tensors):
+        tensor_i = tensor_list[i]
+        tiled.append(tf.tile(tensor_i, [1,num_conds]))
+    return tiled
+
 
 
 # Functions for the quartic formula
