@@ -165,9 +165,9 @@ def get_flow_param_inits(flow_class, D, opt_params={}):
         raise NotImplementedError()
     elif flow_class == PlanarFlow:
         inits = [
-            tf.constant(np.zeros(D)),
+            tf.constant(np.zeros((1,D))),
             tf.glorot_uniform_initializer(),
-            tf.constant(np.zeros(1)),
+            tf.constant(np.zeros((1,1))),
         ]
         dims = [D, D, 1]
         return inits, dims
@@ -236,27 +236,25 @@ def binary_mu(k, D):
 
     
 
-def get_mixture_density_network_inits(arch_dict):
+def get_mixture_density_network_inits(arch_dict, MoG=True):
     D = arch_dict["D"]
     K = arch_dict["K"]
+    flow_type = get_flow_class(arch_dict["flow_type"])
     assert(K > 1)
 
-    MoG_inits = []
-    for k in range(K):
-        log_sigma_fac = np.log(arch_dict['sigma0'])
-        #assert(K <= np.power(2,D))
-        #mu_k = binary_mu(k, D)
-        # arch is init to take in an iso gaussian
-        # uniform in this space is good coverage of 2SD in each dimension.
-        mu_k = np.random.uniform(-2.0, 2.0, (D,)) 
-        mu_k_init = tf.constant(mu_k)
-        log_sigma_k_init = log_sigma_fac*tf.ones((D,), tf.float64)
-        MoG_inits.append((mu_k_init, log_sigma_k_init))
+    if (MoG):
+        MoG_inits = []
+        for k in range(K):
+            log_sigma_fac = np.log(arch_dict['sigma0'])
+            #assert(K <= np.power(2,D))
+            #mu_k = binary_mu(k, D)
+            # arch is init to take in an iso gaussian
+            # uniform in this space is good coverage of 2SD in each dimension.
+            mu_k = np.random.uniform(-2.0, 2.0, (D,)) 
+            mu_k_init = tf.constant(mu_k)
+            log_sigma_k_init = log_sigma_fac*tf.ones((D,), tf.float64)
+            MoG_inits.append((mu_k_init, log_sigma_k_init))
 
-    num_networks = 1
-
-    flow_type = get_flow_class(arch_dict["flow_type"])
-    for k in range(num_networks):
         inits_by_layer = []
         dims_by_layer = []
         for i in range(arch_dict["repeats"]):
@@ -276,7 +274,46 @@ def get_mixture_density_network_inits(arch_dict):
             inits_by_layer.append(em_inits)
             dims_by_layer.append(em_dims)
 
-    return MoG_inits, inits_by_layer, dims_by_layer
+        return MoG_inits, inits_by_layer, dims_by_layer
+    else: # mixture of density networks
+        inits_by_layer = []
+        dims_by_layer = []
+        for i in range(arch_dict["repeats"]):
+            inits_by_network = []
+            dims_by_network = []
+            for k in range(K):
+                if (flow_type == RealNVP):
+                    inits, dims = get_flow_param_inits(flow_type, D, arch_dict['real_nvp_arch'])
+                else:
+                    inits, dims = get_flow_param_inits(flow_type, D)
+                inits_by_network.append(inits)
+                dims_by_network.append(dims)
+            inits_by_layer.append(inits_by_network)
+            dims_by_layer.append(dims_by_network)
+
+        if arch_dict["post_affine"] == True:
+            inits_by_network = []
+            dims_by_network = []
+            for k in range(K):
+                em_inits, em_dims = get_flow_param_inits(ElemMultFlow, arch_dict["D"])
+                inits_by_network.append(em_inits)
+                dims_by_network.append(em_dims)
+            inits_by_layer.append(inits_by_network)
+            dims_by_layer.append(dims_by_network)
+
+            inits_by_network = []
+            dims_by_network = []
+            for k in range(K):
+                shift_inits, shift_dims = get_flow_param_inits(ShiftFlow, arch_dict["D"])
+                inits_by_network.append(shift_inits)
+                dims_by_network.append(shift_dims)
+            inits_by_layer.append(inits_by_network)
+            dims_by_layer.append(dims_by_network)
+
+        shifts = np.random.normal(0, arch_dict['sigma0'], (K,D))
+
+        return shifts, inits_by_layer, dims_by_layer
+        
 
 
 # Time invariant flows

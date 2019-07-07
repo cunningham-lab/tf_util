@@ -15,7 +15,7 @@
 # ==============================================================================
 import tensorflow as tf
 import numpy as np
-import os
+import os, time
 import scipy
 from tf_util.normalizing_flows import (
     PlanarFlow,
@@ -30,26 +30,48 @@ from tf_util.normalizing_flows import (
 
 DTYPE = tf.float64
 
-def init_layer_params(inits, dims, layer_ind, K=1):
+def init_layer_params(inits, dims, layer_ind):
     num_inits = len(inits)
     params = []
     for j in range(num_inits):
         varname_j = "theta_%d_%d" % (layer_ind, j + 1)
-        if isinstance(inits[j], tf.Tensor):
-            init_j = tf.tile(tf.expand_dims(inits[j], 0), (K, 1))
+        init_j = inits[j]
+        if isinstance(init_j, tf.Tensor):
             var_j = tf.get_variable(
                 varname_j, dtype=DTYPE, initializer=init_j
             )
         else:
             var_j = tf.get_variable(
                 varname_j,
-                shape=(K, dims[j]),
+                shape=(1, dims[j]),
                 dtype=DTYPE,
                 initializer=inits[j],
             )
         params.append(var_j)
     return tf.concat(params, 1)
 
+def init_mixture_layer_params(inits, dims, layer_ind, C):
+    num_inits = len(inits)
+    params = []
+    for j in range(num_inits):
+        varname_j = "theta_%d_%d" % (layer_ind, j + 1)
+        init_j = inits[j]
+        if isinstance(init_j, tf.Tensor):
+            var_j = tf.get_variable(
+                varname_j, dtype=DTYPE, initializer=init_j
+            )
+        else:
+            var_j = tf.get_variable(
+                varname_j,
+                shape=(1, dims[j]),
+                dtype=DTYPE,
+                initializer=inits[j],
+            )
+        params.append(var_j)
+    params = tf.concat(params, 1)
+    print(C.shape, params.shape)
+    params = tf.matmul(C, params)
+    return params
 
 
 def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None):
@@ -64,7 +86,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
         if initdir is None:
             inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
         else:
-            inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
+            inits_by_layer, dims_by_layer = load_nf_init([initdir], arch_dict)
             print("Loaded optimized initialization.")
 
     # declare layer parameters with initializations
@@ -133,40 +155,29 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
     return Z, sum_log_det_jacobians, flow_layers
 
 
-def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None):
+def mixture_density_network(G, W, arch_dict, support_mapping=None, initdirs=None):
     """
         G (int tf.tensor) : (1 x M x K) Gumble random variables
         W (tf.tensor) : (1 x M x D) isotropic noise
     """
+
     D = arch_dict["D"]
     K = arch_dict["K"]
     assert(K > 1)
-    if initdir is None:
-        gaussian_inits, inits_by_layer, dims_by_layer = get_mixture_density_network_inits(arch_dict)
+
+    if initdirs is None:
+        mixture_inits, inits_by_layer, dims_by_layer = get_mixture_density_network_inits(arch_dict, MoG=arch_dict['shared'])
         print("Got random initialization.")
     else:
-        gaussian_inits, _, _ = get_mixture_density_network_inits(arch_dict)
-        inits_by_layer, dims_by_layer = load_nf_init(initdir, arch_dict)
+        mixture_inits, _, _ = get_mixture_density_network_inits(arch_dict, MoG=arch_dict['shared'])
+        inits_by_layer, dims_by_layer = load_nf_init(initdirs, arch_dict)
         print("MoG init with tuned density net.")
 
     # declare layer parameters with initializations
     params = []
     with tf.variable_scope("MixtureDensityNetwork"):
 
-        with tf.variable_scope("MoG"):
-            mixture_of_gaussians = []
-            mus = []
-            sigmas = []
-            for k in range(K):
-                mu_k_init, log_sigma_k_init = gaussian_inits[k]
-                mu_k = tf.get_variable('mu_%d' % (k+1), dtype=tf.float64, initializer=mu_k_init)
-                log_sigma_k = tf.get_variable('log_sigma_%d' % (k+1), dtype=tf.float64, initializer=log_sigma_k_init)
-                sigma_k = tf.exp(log_sigma_k)
-                mus.append(mu_k)
-                sigmas.append(sigma_k)
-                mixture_of_gaussians.append((mu_k, sigma_k))
-            mu = tf.stack(mus, 0) # (K x D)
-            sigma = tf.stack(sigmas, 0) # (K x D)
+        with tf.variable_scope("Mixture"):
 
             # Gumbel Softmax Trick
             tau = 0.05
@@ -177,45 +188,70 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                     / (tf.reduce_sum(exp_beta) + 1.0)
             C = gumbel_softmax_trick(G, alpha, tau) # (M x K)
 
-            # select mu_k and sigma_k accordingly
-            C_dot_mu = tf.matmul(C, mu) # (M x D)
-            C_dot_sigma = tf.matmul(C, sigma) # (M x D)
-            Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
-            Z = tf.expand_dims(Z, 0) # (1 x M x D)
+            if (arch_dict['shared']):
+                gaussian_inits = mixture_inits
+                with tf.variable_scope("MoG"):
+                    mixture_of_gaussians = []
+                    mus = []
+                    sigmas = []
+                    for k in range(K):
+                        mu_k_init, log_sigma_k_init = gaussian_inits[k]
+                        mu_k = tf.get_variable('mu_%d' % (k+1), dtype=tf.float64, initializer=mu_k_init)
+                        log_sigma_k = tf.get_variable('log_sigma_%d' % (k+1), dtype=tf.float64, initializer=log_sigma_k_init)
+                        sigma_k = tf.exp(log_sigma_k)
+                        mus.append(mu_k)
+                        sigmas.append(sigma_k)
+                        mixture_of_gaussians.append((mu_k, sigma_k))
+                    mu = tf.stack(mus, 0) # (K x D)
+                    sigma = tf.stack(sigmas, 0) # (K x D)
 
-            C_dot_mu = tf.expand_dims(C_dot_mu, 1)
-            C_dot_sigma = tf.expand_dims(C_dot_sigma, 1)
-            p_z0_mid_c = tf.reduce_prod(tf.divide(tf.exp(tf.divide(-tf.square(Z-C_dot_mu), 2.0*C_dot_sigma)), 
-                                            np.sqrt(2.0 *np.pi)*C_dot_sigma), axis=2) # (1 x M)
-            p_z0 = tf.reduce_mean(p_z0_mid_c, 0)
-            log_base_density = tf.expand_dims(tf.log(p_z0), 0)
+                    # select mu_k and sigma_k accordingly
+                    C_dot_mu = tf.matmul(C, mu) # (M x D)
+                    C_dot_sigma = tf.matmul(C, sigma) # (M x D)
+                    Z = C_dot_mu + tf.multiply(C_dot_sigma, W[0])
+                    Z = tf.expand_dims(Z, 0) # (1 x M x D)
 
-            sum_log_det_jacobians = 0.0
+                    C_dot_mu = tf.expand_dims(C_dot_mu, 1)
+                    C_dot_sigma = tf.expand_dims(C_dot_sigma, 1)
+                    p_z0_mid_c = tf.reduce_prod(tf.divide(tf.exp(tf.divide(-tf.square(Z-C_dot_mu), 2.0*C_dot_sigma)), 
+                                                np.sqrt(2.0 *np.pi)*C_dot_sigma), axis=2) # (1 x M)
+                    p_z0 = tf.reduce_mean(p_z0_mid_c, 0)
+                    log_base_density = tf.expand_dims(tf.log(p_z0), 0)
+            else:
+                shift_inits = mixture_inits
+                Z = W
+                p_z0 = tf.reduce_prod(tf.divide(tf.exp(tf.divide(-tf.square(Z), 2.0)), 
+                                            np.sqrt(2.0 *np.pi)), axis=2) # (1 x M)
+                log_base_density = tf.expand_dims(tf.log(p_z0), 0)
+
+        sum_log_det_jacobians = 0.0
             
         flow_layers = []
         ind = 0
+    
+        if (not arch_dict['shared']):
+            Z = tf.transpose(Z, [1, 0, 2]) # [M, 1, D] (do this so each flow param affects sample differently
 
-        ZT = tf.transpose(Z, [1, 0, 2]) # [M, 1, D] (do this so each flow param affects sample differently
         flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
             with tf.variable_scope("Layer%d" % (i+1)):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
-                print('C', C)
-                print('params', params)
-                params = tf.matmul(C, params) # (M x |theta_i|)
-                print('here!')
+                if (arch_dict['shared']):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                else:
+                    params = init_mixture_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, C)
+
+                #params = tf.matmul(C, params) # (M x |theta_i|)
                 if (flow_class == PlanarFlow):
-                    flow_layer = flow_class(params, ZT)
-                    ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    print(ZT.shape, log_det_jacobian.shape)
+                    flow_layer = flow_class(params, Z)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    print(Z.shape, log_det_jacobian.shape)
                 elif (flow_class == RealNVP):
                     real_nvp_arch = arch_dict['real_nvp_arch']
                     num_masks = real_nvp_arch['num_masks']
                     real_nvp_layers = real_nvp_arch['nlayers']
                     upl = real_nvp_arch['upl']
-                    params = tf.matmul(C, params) # (M x |theta_i|)
-                    flow_layer = flow_class(params, ZT, num_masks, real_nvp_layers, upl)
-                    ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 else:
                     raise NotImplementedError()
                 sum_log_det_jacobians += log_det_jacobian
@@ -224,24 +260,29 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
 
         if arch_dict["post_affine"]:
             with tf.variable_scope("PostMultLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
-                params = tf.matmul(C, params) # (M x |theta_i|)
-                flow_layer = ElemMultFlow(params, ZT)
-                ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
+                if (arch_dict['shared']):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                else:
+                    params = init_mixture_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, C)
+                flow_layer = ElemMultFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(flow_layer)
                 ind += 1
 
             with tf.variable_scope("PostShiftLayer"):
-                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1, K)
-                params = tf.matmul(C, params) # (M x |theta_i|)
-                flow_layer = ShiftFlow(params, ZT)
-                ZT, log_det_jacobian = flow_layer.forward_and_jacobian()
+                if (arch_dict['shared']):
+                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                else:
+                    params = init_mixture_layer_params([inits_by_layer[ind][0]+shift_inits], dims_by_layer[ind], ind+1, C)
+                flow_layer = ShiftFlow(params, Z)
+                Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(flow_layer)
                 ind += 1
 
-        Z = tf.transpose(ZT, [1, 0, 2])
+        if (not arch_dict['shared']):
+            Z = tf.transpose(Z, [1, 0, 2])
         sum_log_det_jacobians = tf.transpose(sum_log_det_jacobians)
 
         # need to add support mapping
@@ -252,7 +293,8 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdir=None)
                 sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(final_layer)
 
-    return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
+    #return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
+    return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
@@ -279,118 +321,162 @@ def gumbel_softmax_log_density(K, C, alpha, tau):
     log_p_c = log_gamma + (K-1)*log_tau - K*log_sum + sum_log
     return log_p_c
 
-def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
+def get_array_str(a):
+    """Derive string from numpy 1-D array using scientific encoding.
+
+    # Arguments
+        a (np.array) String is derived from this array.
+
+    # Returns
+        array_str (string) Array string
+    """
+    d = a.shape[0]
+    array_str = "%.2E" % a[0]
+    if d> 1:
+        for i in range(1, d):
+            array_str += "_%.2E" % a[i]
+    return array_str
+
+
+def get_initdir(arch_dict, random_seed, init_type="gauss", mu=None, sigma=None, a=None, b=None):
+    """Get the directory name for particular initialization parameterization.
+
+    Gaussian initializations:
+        if no bounds
+            archstring/gauss_mustr_sigmastr_rsstr
+        if bounds 
+            archstring/gauss_mustr_sigmastr_astr_bstr_rsstr
+
+    # Attributes
+
+
+    # Returns
+    """
     # set file I/O stuff
     prefix = "data/inits/"
+    D = arch_dict['D']
     archstring = get_archstring(arch_dict, init=True)
 
-    init_mu_str = "%.2f" % system.density_network_init_mu[0]
-    if system.D > 1:
-        for i in range(1, system.D):
-            init_mu_str += "_%.2f" % system.density_network_init_mu[i]
+    if (init_type == "gauss"):
+        if (mu is None):
+            mu = np.zeros((D,))
+        if (sigma is None):
+            sigma = np.ones((D,))
 
-    sysparams = system.free_params[0]
-    num_free_params = len(system.free_params)
-    if num_free_params > 1:
-        for i in range(1, num_free_params):
-            sysparams += "_%s" % system.free_params[i]
-
-    if (system.density_network_bounds is not None):
-        if (system.name == "V1Circuit" or "STGCircuit"):
-            initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_rs=%d/" % (
-                    system.D,
-                    sysparams,
-                    init_type,
-                    archstring,
-                    init_mu_str,
-                    sigma,
-                    random_seed,
-                    )
+        mu_str = 'mu=' + get_array_str(mu)
+        sigma_str = 'sigma=' + get_array_str(sigma)
+        initdir = prefix + archstring + '/%s_%s' % (mu_str, sigma_str)
+        if (a is not None):
+            if (b is not None):
+                a_str = 'a=' + get_array_str(a)
+                b_str = 'b=' + get_array_str(b)
+                initdir += '_%s_%s' % (a_str, b_str)
+            else:
+                raise NotImplementedError
         else:
-            initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_from_%.2f_to_%.2f_rs=%d/" % (
-                    system.D,
-                    sysparams,
-                    init_type,
-                    archstring,
-                    init_mu_str,
-                    sigma,
-                    system.density_network_bounds[0],
-                    system.density_network_bounds[1],
-                    random_seed,
-                    )
+            if (b is not None):
+                raise NotImplementedError
     else:
-        initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_rs=%d/" % (
-                    system.D,
-                    sysparams,
-                    init_type,
-                    archstring,
-                    init_mu_str, 
-                    sigma,
-                    random_seed,
-                    )
+        raise NotImplementedError
+    initdir += '_rs=%d/' % random_seed
 
     return initdir
 
 def check_init(initdir):
+    # if directory exists, but no files, assume training is occurring.  
+    # Check every 1 min for 30 min.
     initfname = initdir + "theta.npz"
     resfname = initdir + "opt_info.npz"
     check_passed = False
-    if os.path.exists(initfname):
-        resfile = np.load(resfname, allow_pickle=True)
-        # Make sure it has converged
-        if not resfile["converged"]:
-            print("Error: Found init file, but optimiation has not converged.")
-            print("Tip: Consider adjusting approximation architecture or min_iters.")
-            print("Delete the init directory if optimization was killed early.")
-            exit()
-        check_passed = True
+    if (os.path.isdir(initdir)):
+        if os.path.exists(initfname):
+            resfile = np.load(resfname, allow_pickle=True)
+            # Check to see if it has converged
+            if resfile["converged"]:
+                check_passed = True
+            else:
+                print("Found init file, but optimiation has not converged.")
+        else:
+            print("Found init directory, but optimiation has not converged.")
+        mins_left = 30
+        while (not check_passed and (mins_left > 0)):
+            print("Will wait %d min to see if has converged." % mins_left)
+            time.sleep(60.0)
+            print('Checking again...')
+            if os.path.exists(initfname):
+                resfile = np.load(resfname, allow_pickle=True)
+                if resfile["converged"]:
+                    check_passed = True
+
+            mins_left = mins_left -1
+
+    else:
+        os.makedirs(initdir)
     return check_passed
 
 
-def load_nf_init(initdir, arch_dict):
-    initfile = np.load(initdir + "theta.npz", allow_pickle=True)
-    theta = initfile["theta"][()]
+def load_nf_init(initdirs, arch_dict):
+    K = arch_dict['K']
+    num_initdirs = len(initdirs)
+    if (K > 1 and (not arch_dict['shared'])):
+        assert(K == num_initdirs)
     scope = "DensityNetwork"
+    thetas = []
+    for initdir in initdirs:
+        nf_init_file = initdir + "theta.npz"
+        initfile = np.load(initdir + "theta.npz", allow_pickle=True)
+        thetas.append(initfile["theta"][()])
+
     inits_by_layer = []
     dims_by_layer = []
     layer_ind = 1
 
     for i in range(arch_dict["repeats"]):
         if arch_dict["flow_type"] == "PlanarFlow":
-            u_init = tf.constant(
-                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
-            )
-            w_init = tf.constant(
-                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 2)], dtype=DTYPE
-            )
-            b_init = tf.constant(
-                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 3)], dtype=DTYPE
-            )
-            init_i = [u_init, w_init, b_init]
+            u_inits = []
+            w_inits = []
+            b_inits = []
+            for k in range(num_initdirs):
+                u_inits.append(thetas[k]["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)])
+                w_inits.append(thetas[k]["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 2)])
+                b_inits.append(thetas[k]["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 3)])
+            u_init = np.concatenate(u_inits, axis=0)
+            w_init = np.concatenate(w_inits, axis=0)
+            b_init = np.concatenate(b_inits, axis=0)
+
+            init_i = [tf.constant(u_init), tf.constant(w_init), tf.constant(b_init)]
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
 
         elif arch_dict["flow_type"] == "RealNVP":
-            params_init = tf.constant(
-                theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
-            )
-            init_i = [params_init]
-            dims_i = [params_init.shape]
+            raise NotImplementedError
+            #params_init = tf.constant(
+            #    theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
+            #
+            #init_i = [params_init]
+            #dims_i = [params_init.shape]
 
         else:
-            raise NotImplementedError()
+            raise NotImplementedError
 
         inits_by_layer.append(init_i)
         dims_by_layer.append(dims_i)
         layer_ind += 1
 
     if arch_dict["post_affine"]:
-        a_init = tf.constant(theta["%s/PostMultLayer/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
-        inits_by_layer.append([a_init])
+        a_inits = []
+        for k in range(num_initdirs):
+            a_inits.append(thetas[k]["%s/PostMultLayer/theta_%d_1:0" % (scope, layer_ind)])
+        a_init = np.concatenate(a_inits, axis=0)
+        inits_by_layer.append([tf.constant(a_init)])
         dims_by_layer.append([a_init.shape])
+
         layer_ind += 1
 
-        b_init = tf.constant(theta["%s/PostShiftLayer/theta_%d_1:0" % (scope, layer_ind)], dtype=DTYPE)
-        inits_by_layer.append([b_init])
+        b_inits = []
+        for k in range(num_initdirs):
+            b_inits.append(thetas[k]["%s/PostShiftLayer/theta_%d_1:0" % (scope, layer_ind)])
+        b_init = np.concatenate(b_inits, axis=0)
+        inits_by_layer.append([tf.constant(b_init)])
         dims_by_layer.append([b_init.shape])
         layer_ind += 1
 
@@ -901,7 +987,10 @@ def get_archstring(arch_dict, init=False):
     if K == 1 or init:
         arch_str = ""
     elif K > 1:
-        arch_str = "K=%d_s0=%.1f_" % (K, arch_dict['sigma0'])
+        if (arch_dict['shared']):
+            arch_str = "K=%d_shared_s0=%.1f_" % (K, arch_dict['sigma0'])
+        else:
+            arch_str = "K=%d_s0=%.1f_" % (K, arch_dict['sigma0'])
     else:
         print('Error: K must be positive integer.')
         exit()
