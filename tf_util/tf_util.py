@@ -296,7 +296,7 @@ def get_initdir(system, arch_dict, sigma, random_seed, init_type="gauss"):
             sysparams += "_%s" % system.free_params[i]
 
     if (system.density_network_bounds is not None):
-        if (system.name == "V1Circuit"):
+        if (system.name == "V1Circuit" or "STGCircuit"):
             initdir = prefix + "D=%d_%s_%s_%s_mu=%s_sigma=%.2f_rs=%d/" % (
                     system.D,
                     sysparams,
