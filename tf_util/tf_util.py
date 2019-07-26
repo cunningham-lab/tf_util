@@ -368,8 +368,12 @@ def get_initdir(arch_dict, random_seed, init_type="gauss", mu=None, sigma=None, 
         initdir = prefix + archstring + '/%s_%s' % (mu_str, sigma_str)
         if (a is not None):
             if (b is not None):
-                a_str = 'a=' + get_array_str(a)
-                b_str = 'b=' + get_array_str(b)
+                if (a.shape[0] > 4 or b.shape[0] > 4):
+                    a_str = 'a=%.2E' % a[0]
+                    b_str = 'b=%.2E' % b[0]
+                else:
+                    a_str = 'a=' + get_array_str(a)
+                    b_str = 'b=' + get_array_str(b)
                 initdir += '_%s_%s' % (a_str, b_str)
             else:
                 raise NotImplementedError
