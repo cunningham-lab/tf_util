@@ -859,6 +859,11 @@ class SoftPlusFlow(NormFlow):
         log_det_jac = tf.reduce_sum(tf.log(jacobian), axis=2)
         return z_out, log_det_jac
 
+    def inverse(self, z):
+         f_inv_z = tf.log(tf.exp(z) - 1.0)
+         return f_inv_z
+        
+
 
 class StructuredSpinnerFlow(NormFlow):
     def __init__(self, name, dim):

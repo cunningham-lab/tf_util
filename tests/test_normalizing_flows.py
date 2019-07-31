@@ -531,7 +531,8 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
                 assert -alpha[k, 0] <= beta[k, 0]
 
         # Should check known inverse
-        if flow1.name in ["RealNVP"]:
+        if flow1.name in ["RealNVP", "SoftPlusFlow"]:
+            print('testing inverse', flow1.name)
             f_inv_z = flow1.inverse(out1)
             _f_inv_z = sess.run(f_inv_z, feed_dict)
             if (flow1.name == "RealNVP"):
