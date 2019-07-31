@@ -332,7 +332,7 @@ def test_fisher_information_matrix():
     # Test D=2
     W = tf.placeholder(tf.float64, (1,1,2))
     A = np.array([[1.0, 0.0], [0.0, 1.0]])
-    log_q_z = tf.matmul(np.expand_dims(A, 0), tf.transpose(tf.square(W), [0, 2, 1]))[:,:,0]
+    log_q_z = tf.reduce_sum(tf.matmul(np.expand_dims(A, 0), tf.transpose(tf.square(W), [0, 2, 1])))
     Z = W
     Z_INV = Z
     I = fisher_information_matrix(log_q_z, W, Z, Z_INV)
@@ -341,23 +341,21 @@ def test_fisher_information_matrix():
         _I = sess.run(I, {W:_W})
         assert(approx_equal(-4.0*np.eye(2), _I, EPS))
 
-    return None
-
-
-    W = tf.placeholder(tf.float64, (1,1,1))
-    log_q_z = 2 * tf.pow(W, 3)
-    Z = 3.0 * W
-    Z_INV = Z / 3.0
+    W = tf.placeholder(tf.float64, (1,1,2))
+    W2 = tf.square(W)
+    A = np.array([[1.0, 2.0], [3.0, 4.0]])
+    log_q_z = tf.reduce_sum(tf.matmul(np.expand_dims(A, 0), tf.transpose(W2, [0, 2, 1])))
+    print(log_q_z)
+    log_q_z += tf.reduce_prod(W2)
+    print(log_q_z.shape)
+    Z = W
+    Z_INV = Z
     I = fisher_information_matrix(log_q_z, W, Z, Z_INV)
     with tf.Session() as sess:
-        _W = np.ones((1,1,1))
+        _W = np.ones((1,1,2))
         _I = sess.run(I, {W:_W})
-        assert(approx_equal(np.array([[-(2.0/9.0)*12.0]]), _I, EPS))
-        _W = np.zeros((1,1,1))
-        _I = sess.run(I, {W:_W})
-        assert(approx_equal(np.array([[0.0]]), _I, EPS))
-
-    return None
+        ans = -np.array([[20.0, 8.0], [8.0, 28.0]])
+        assert(approx_equal(ans, _I, EPS))
 
 
     return None
