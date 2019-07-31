@@ -30,6 +30,7 @@ from tf_util.normalizing_flows import get_real_nvp_mask, \
                             get_real_nvp_num_params, \
                             nvp_neural_network_np
 
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 DTYPE = tf.float64
@@ -530,6 +531,11 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
                 assert -alpha[k, 0] <= beta[k, 0]
 
         # Should check known inverse
+        if flow1.name == "RealNVP":
+            f_inv_z = flow1.inverse(out1)
+            _f_inv_z = sess.run(f_inv_z, feed_dict)
+            # Machine precision issues force this to be a bit lax for param dist.
+            assert(approx_equal(_f_inv_z, _inputs, 1e-2))
 
     assert approx_equal(_out1, out_true, eps)
     assert approx_equal(_log_det_jac1, log_det_jac_true, eps)
@@ -598,7 +604,6 @@ def test_get_flow_class():
     assert get_flow_class("TanhFlow") == TanhFlow
     assert get_flow_class("RealNVP") == RealNVP
 
-    print("Get flow class passed.")
     return None
 
 
@@ -610,14 +615,9 @@ def test_get_num_flow_params():
     assert get_num_flow_params(AffineFlow, 100) == 10100
     assert get_num_flow_params(AffineFlow, 1000) == 1001000
 
-    """
-	assert(get_num_flow_params(CholProdFlow, 1) == 0)
-	assert(get_num_flow_params(CholProdFlow, 2) == 0)
-	assert(get_num_flow_params(CholProdFlow, 4) == 0)
-	assert(get_num_flow_params(CholProdFlow, 20) == 0)
-	assert(get_num_flow_params(CholProdFlow, 100) == 0)
-	assert(get_num_flow_params(CholProdFlow, 1000) == 0)
-	"""
+    assert(get_num_flow_params(CholProdFlow, 1) == 0)
+    assert(get_num_flow_params(CholProdFlow, 2) == 0)
+    assert(get_num_flow_params(CholProdFlow, 4) == 0)
 
     assert get_num_flow_params(ElemMultFlow, 1) == 1
     assert get_num_flow_params(ElemMultFlow, 2) == 2
@@ -668,24 +668,6 @@ def test_get_num_flow_params():
     assert get_num_flow_params(SoftPlusFlow, 100) == 0
     assert get_num_flow_params(SoftPlusFlow, 1000) == 0
 
-    """
-	assert(get_num_flow_params(StructuredSpinnerFlow, 1) == 0)
-	assert(get_num_flow_params(StructuredSpinnerFlow, 2) == 0)
-	assert(get_num_flow_params(StructuredSpinnerFlow, 4) == 0)
-	assert(get_num_flow_params(StructuredSpinnerFlow, 20) == 0)
-	assert(get_num_flow_params(StructuredSpinnerFlow, 100) == 0)
-	assert(get_num_flow_params(StructuredSpinnerFlow, 1000) == 0)
-	"""
-
-    """
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 1) == 0)
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 2) == 0)
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 4) == 0)
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 20) == 0)
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 100) == 0)
-	assert(get_num_flow_params(StructuredSpinnerTanhFlow, 1000) == 0)
-	"""
-
     assert get_num_flow_params(TanhFlow, 1) == 0
     assert get_num_flow_params(TanhFlow, 2) == 0
     assert get_num_flow_params(TanhFlow, 4) == 0
@@ -701,7 +683,6 @@ def test_get_num_flow_params():
     assert get_num_flow_params(RealNVP, 100) == 602
     assert get_num_flow_params(RealNVP, 1000) == 6002
 
-    print("Get number of flow parameters passed.")
     return None
 
 
@@ -751,7 +732,6 @@ def test_flow_param_initialization():
 			inits, dims = get_flow_param_inits(StructuredSpinnerTanhFlow, D)
 			"""
 
-    print("Flow initializations passed.")
     return None
 
 
@@ -766,27 +746,7 @@ def test_affine_flows():
     eval_flow_at_dim(AffineFlow, affine_flow, 4, K, n)
     eval_flow_at_dim(AffineFlow, affine_flow, 20, K, n)
     eval_flow_at_dim(AffineFlow, affine_flow, 100, K, n)
-    #eval_flow_at_dim(AffineFlow, affine_flow, 300, K, n) 
-    print("Affine flows passed.")
     return None
-
-
-"""
-def test_chol_prod_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
-
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 1, K, n)
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 2, K, n)
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 4, K, n)
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 20, K, n)
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 100, K, n)
-	eval_flow_at_dim(CholProdFlow, chol_prod_flow, 1000, K, n)
-	print('Cholesky product flows passed.')
-	return None
-"""
 
 
 def test_elem_mult_flows():
@@ -801,7 +761,6 @@ def test_elem_mult_flows():
     eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 20, K, n)
     eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 100, K, n)
     eval_flow_at_dim(ElemMultFlow, elem_mult_flow, 1000, K, n)
-    print("Elementwise multiplication flows passed.")
     return None
 
 
@@ -817,7 +776,6 @@ def test_exp_flows():
     eval_flow_at_dim(ExpFlow, exp_flow, 20, K, n)
     eval_flow_at_dim(ExpFlow, exp_flow, 100, K, n)
     eval_flow_at_dim(ExpFlow, exp_flow, 1000, K, n)
-    print("Exp flows passed.")
     return None
 
 
@@ -833,7 +791,6 @@ def test_interval_flows():
     eval_interval_flow_at_dim(20, K, n)
     eval_interval_flow_at_dim(100, K, n)
     eval_interval_flow_at_dim(1000, K, n)
-    print("Interval flows passed.")
     return None
 
 
@@ -850,7 +807,6 @@ def test_planar_flows():
     eval_flow_at_dim(PlanarFlow, planar_flow, 20, K, n)
     eval_flow_at_dim(PlanarFlow, planar_flow, 100, K, n)
     eval_flow_at_dim(PlanarFlow, planar_flow, 1000, K, n)
-    print("Planar flows passed.")
     return None
 
 
@@ -866,7 +822,6 @@ def test_radial_flows():
     eval_flow_at_dim(RadialFlow, radial_flow, 20, K, n)
     eval_flow_at_dim(RadialFlow, radial_flow, 100, K, n)
     eval_flow_at_dim(RadialFlow, radial_flow, 1000, K, n)
-    print("Radial flows passed.")
     return None
 
 
@@ -882,7 +837,6 @@ def test_shift_flows():
     eval_flow_at_dim(ShiftFlow, shift_flow, 20, K, n)
     eval_flow_at_dim(ShiftFlow, shift_flow, 100, K, n)
     eval_flow_at_dim(ShiftFlow, shift_flow, 1000, K, n)
-    print("Shift flows passed.")
     return None
 
 
@@ -898,7 +852,6 @@ def test_simplex_bijection_flows():
     eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 20, K, n)
     eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 100, K, n)
     eval_flow_at_dim(SimplexBijectionFlow, simplex_bijection_flow, 1000, K, n)
-    print("Simplex bijection flows passed.")
     return None
 
 
@@ -914,43 +867,7 @@ def test_softplus_flows():
     eval_flow_at_dim(SoftPlusFlow, softplus_flow, 20, K, n)
     eval_flow_at_dim(SoftPlusFlow, softplus_flow, 100, K, n)
     eval_flow_at_dim(SoftPlusFlow, softplus_flow, 1000, K, n)
-    print("SoftPlus flows passed.")
     return None
-
-
-"""
-def test_structured_spinner_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
-
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 1, K, n)
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 2, K, n)
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 4, K, n)
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 20, K, n)
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 100, K, n)
-	eval_flow_at_dim(StructuredSpinnerFlow, structured_spinner_flow, 1000, K, n)
-	print('Structured spinner flows passed.')
-	return None
-"""
-
-"""
-def test_structured_spinner_tanh_flows():
-	# num parameterizations
-	K = 20
-	# number of inputs tested per parameterization
-	n = 100
-
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 1, K, n)
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 2, K, n)
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 4, K, n)
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 20, K, n)
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 100, K, n)
-	eval_flow_at_dim(StructuredSpinnerTanhFlow, structured_spinner_tanh_flow, 1000, K, n)
-	print('Structured spinner tanh flows passed.')
-	return None
-"""
 
 
 def test_tanh_flows():
@@ -965,7 +882,6 @@ def test_tanh_flows():
     eval_flow_at_dim(TanhFlow, tanh_flow, 20, K, n)
     eval_flow_at_dim(TanhFlow, tanh_flow, 100, K, n)
     eval_flow_at_dim(TanhFlow, tanh_flow, 1000, K, n)
-    print("Tanh flows passed.")
     return None
 
 def test_real_nvp():
@@ -1060,14 +976,12 @@ def test_get_real_nvp_num_params():
     upls = [10, 100, 10, 100, 100]
     num_params_true = [104, 84816, 880, 259280, 323600]
     for i in range(len(Ds)):
-        print(Ds[i])
         num_params_i = get_real_nvp_num_params(Ds[i], num_masks[i], nlayers[i], upls[i])
         assert(num_params_i == num_params_true[i])
 
     return None
 
 if __name__ == "__main__":
-
     test_get_flow_class()
     test_get_num_flow_params()
     test_flow_param_initialization()
@@ -1083,7 +997,9 @@ if __name__ == "__main__":
     test_softplus_flows()
     test_tanh_flows()
 
+    print('testing the real nvp')
     test_get_real_nvp_mask()
     test_get_real_nvp_mask_list()
     test_get_real_nvp_num_params()
     test_real_nvp()
+    print('done')

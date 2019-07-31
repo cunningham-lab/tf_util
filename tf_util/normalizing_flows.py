@@ -589,7 +589,6 @@ class IntervalFlow(NormFlow):
     
         """
         for i in range(a.shape[0]):
-            print(a[i], b[i])
             assert a[i] < b[i]
 
         super().__init__(params, inputs)

@@ -296,6 +296,52 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdirs=None
     #return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
     return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
 
+def fisher_information_matrix(log_q_z, W, Z, Z_INV):
+    """Computes the Fisher information matrix for invertible generative models.
+
+       This function leverages auto-grad feature of tensorflow. The tf.gradients
+       and tf.hessians functions sum the gradients across all input tensor elements,
+       making it cumbersome to run these fisher information matrix calculations in 
+       batch across Z.  W should only ever be supplied with M=1 sample at a time.
+       
+       TODO: Can I make this a batched computation?
+
+        Args:
+            log_q_z (tf.tensor): (1 x M) log probability of samples Z
+            W (tf.tensor): (1 x M x D) base distribution samples
+            Z (tf.tensor): (1 x M x D) invertible generative model samples
+            Z_INV (tf.tensor): (1 x M x D) inverted samples
+
+        Returns:
+            I (tf.tensor): (D x D)
+
+    """    
+
+    d2ldw2 = tf.hessians(log_q_z, W)[0]
+
+    # Break up Z_INV into individual dimensions
+    Z_INVs = tf.unstack(Z_INV, num=1, axis=0)
+    Z_INVs = tf.unstack(Z_INVs[0], num=1, axis=0)
+    Z_INVs = tf.unstack(Z_INVs[0], axis=0)
+
+    D = len(Z_INVs)
+    dZINV2dZ2 = []
+    for i in range(D):
+        dZINVidZ2 = []
+        for j in range(D):
+            hess_ij = tf.hessians(Z_INVs[i]*Z_INVs[j], Z)[0]
+            dZINVidZ2.append(hess_ij)
+        dZINV2dZ2.append(tf.stack(dZINVidZ2, axis=0))
+    dZINV2dZ2 = tf.stack(dZINV2dZ2, axis=0)
+
+    _d2ldw2 = tf.expand_dims(tf.expand_dims(d2ldw2[0,0,:,0,0,:], 2), 3)
+    _dZINV2dZ2 = dZINV2dZ2[:,:,0,0,:,0,0,:]
+
+    d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * _dZINV2dZ2, 0), 0)
+
+    I = -d2ldz2
+    return I
+
 def gumbel_softmax_trick(G, alpha, tau):
     """
         G (int tf.tensor) : (1 x M x K) Gumble random variables
@@ -452,7 +498,12 @@ def load_nf_init(initdirs, arch_dict):
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
 
         elif arch_dict["flow_type"] == "RealNVP":
-            raise NotImplementedError
+            inits = []
+            for k in range(num_initdirs):
+                inits.append(thetas[k]["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)])
+            init = np.concatenate(inits, axis=0)
+            init_i = [tf.constant(init)]
+            dims_i = [init.shape]
             #params_init = tf.constant(
             #    theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)], dtype=DTYPE
             #
