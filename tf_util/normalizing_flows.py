@@ -616,6 +616,23 @@ class IntervalFlow(NormFlow):
         log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(tanh_z)), 2)
         return out, log_det_jac
 
+    def inverse(self, z):
+        """Invert sample z to random variable w.
+
+            # Arguments
+                z (tf.tensor): [K, self.num_params] Tensor containing
+                                         K parameterizations of the layer.
+            # Returns
+                f_inv_z (tf.tensor): [K, batch_size, self.dim] Result of operation
+
+        """
+        m = np.expand_dims(np.expand_dims((self.b - self.a) / 2.0, 0), 0)
+        c = np.expand_dims(np.expand_dims((self.a + self.b) / 2.0, 0), 0)
+
+        f_inv_z = tf.math.atanh(tf.divide(z - c,  m))
+
+        return f_inv_z
+
 
 class PlanarFlow(NormFlow):
     """Planar flow layer

@@ -531,11 +531,14 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
                 assert -alpha[k, 0] <= beta[k, 0]
 
         # Should check known inverse
-        if flow1.name == "RealNVP":
+        if flow1.name in ["RealNVP"]:
             f_inv_z = flow1.inverse(out1)
             _f_inv_z = sess.run(f_inv_z, feed_dict)
-            # Machine precision issues force this to be a bit lax for param dist.
-            assert(approx_equal(_f_inv_z, _inputs, 1e-2))
+            if (flow1.name == "RealNVP"):
+                # Machine precision issues force this to be a bit lax for param dist.
+                assert(approx_equal(_f_inv_z, _inputs, 1e-2))
+            else: 
+                assert(approx_equal(_f_inv_z, _inputs, 1e-16))
 
     assert approx_equal(_out1, out_true, eps)
     assert approx_equal(_log_det_jac1, log_det_jac_true, eps)
@@ -569,6 +572,7 @@ def eval_interval_flow_at_dim(dim, K, n):
             )
 
     _out1 = np.zeros((K, n, out_dim))
+    _f_inv_z1 = np.zeros((K, n, dim))
     _log_det_jac1 = np.zeros((K, n))
     with tf.Session() as sess:
         for k in range(K):
@@ -576,14 +580,17 @@ def eval_interval_flow_at_dim(dim, K, n):
             _b_k = _b[k, :]
             flow1 = IntervalFlow(params1, inputs1, _a_k, _b_k)
             out1, log_det_jac1 = flow1.forward_and_jacobian()
+            f_inv_z = flow1.inverse(out1)
             _params_k = np.expand_dims(_params[k, :], 0)
             _inputs_k = np.expand_dims(_inputs[k, :, :], 0)
             feed_dict = {params1: _params_k, inputs1: _inputs_k}
-            _out1_k, _log_det_jac1_k = sess.run([out1, log_det_jac1], feed_dict)
+            _out1_k, _log_det_jac1_k, _f_inv_z = sess.run([out1, log_det_jac1, f_inv_z], feed_dict)
             _out1[k, :, :] = _out1_k[0]
+            _f_inv_z1[k,:,:] = _f_inv_z[0]
             _log_det_jac1[k, :] = _log_det_jac1_k[0]
 
     assert approx_equal(_out1, out_true, EPS)
+    assert approx_equal(_f_inv_z1, _inputs, EPS)
     assert approx_equal(_log_det_jac1, log_det_jac_true, EPS)
     return None
 
@@ -997,9 +1004,7 @@ if __name__ == "__main__":
     test_softplus_flows()
     test_tanh_flows()
 
-    print('testing the real nvp')
     test_get_real_nvp_mask()
     test_get_real_nvp_mask_list()
     test_get_real_nvp_num_params()
     test_real_nvp()
-    print('done')
