@@ -613,7 +613,7 @@ class IntervalFlow(NormFlow):
         tanh_z = tf.tanh(z)
 
         out = tf.multiply(m, tanh_z) + c
-        log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(tanh_z)), 2)
+        log_det_jac = tf.reduce_sum(np.log(m) + tf.log(1.0 - tf.square(tanh_z) + eps), 2)
         return out, log_det_jac
 
     def inverse(self, z):
