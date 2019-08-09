@@ -296,13 +296,66 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdirs=None
     #return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
     return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
 
-def fisher_information_matrix(log_q_z, W, Z, Z_INV):
+def fisher_information_matrix(log_q_z, W, Z, Z_INV=None):
+    """Computes the Fisher information matrix for invertible generative models.
+
+        This function leverages auto-grad feature of tensorflow. The tf.gradients
+       and tf.hessians functions sum the gradients across all input tensor elements,
+       making it cumbersome to run these fisher information matrix calculations in
+       batch across Z.  W should only ever be supplied with M=1 sample at a time.
+
+        Args:
+            log_q_z (tf.tensor): (1 x M) log probability of samples Z
+            W (tf.tensor): (1 x M x D) base distribution samples
+            Z (tf.tensor): (1 x M x D) invertible generative model samples
+            Z_INV (tf.tensor): (1 x M x D) inverted samples
+
+        Returns:
+            I (tf.tensor): (D x D)
+    """    
+    dldw = tf.gradients(log_q_z, W)
+
+    if (Z_INV is not None):
+        Z_INVs = tf.unstack(Z_INV, num=1, axis=0)
+        Z_INVs = tf.unstack(Z_INVs[0], num=1, axis=0)
+        Z_INVs = tf.unstack(Z_INVs[0], axis=0)
+
+        D = len(Z_INVs)
+        dwdzs = []
+        for i in range(D):
+            dwdzs.append(tf.gradients(Z_INVs[i], Z))
+        dwdz = tf.concat(dwdzs, axis=0)[:,0,0,:]
+
+    else:
+        Zs = tf.unstack(Z, num=1, axis=0)
+        Zs = tf.unstack(Zs[0], num=1, axis=0)
+        Zs = tf.unstack(Zs[0], axis=0)
+
+        D = len(Zs)
+        dzdws = []
+        for i in range(D):
+            dzdws.append(tf.gradients(Zs[i], W))
+        dzdw = tf.concat(dzdws, axis=0)[:,0,0,:]
+        # use the inverse function theorem
+        dwdz = tf.linalg.inv(dzdw) 
+
+        
+
+    dldz = tf.matmul(dldw[0][0], dwdz)
+    dldz_sq = tf.matmul(tf.transpose(dldz), dldz)
+
+    return dldz_sq
+
+
+def dgm_hessian(log_q_z, W, Z, Z_INV):
     """Computes the Fisher information matrix for invertible generative models.
 
        This function leverages auto-grad feature of tensorflow. The tf.gradients
        and tf.hessians functions sum the gradients across all input tensor elements,
        making it cumbersome to run these fisher information matrix calculations in 
        batch across Z.  W should only ever be supplied with M=1 sample at a time.
+
+       This second derivative versiom only works under certain regularity conditions.
        
        TODO: Can I make this a batched computation?
 
@@ -339,8 +392,64 @@ def fisher_information_matrix(log_q_z, W, Z, Z_INV):
 
     d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * _dZINV2dZ2, 0), 0)
 
-    I = -d2ldz2
-    return I
+    return d2ldz2
+
+def dgm_hessian_fast(log_q_z, W, Z, Z_INV):
+    """Computes the Fisher information matrix for invertible generative models.
+
+       This function leverages auto-grad feature of tensorflow. The tf.gradients
+       and tf.hessians functions sum the gradients across all input tensor elements,
+       making it cumbersome to run these fisher information matrix calculations in 
+       batch across Z.  W should only ever be supplied with M=1 sample at a time.
+
+       This second derivative versiom only works under certain regularity conditions.
+       
+       TODO: Can I make this a batched computation?
+
+        Args:
+            log_q_z (tf.tensor): (1 x M) log probability of samples Z
+            W (tf.tensor): (1 x M x D) base distribution samples
+            Z (tf.tensor): (1 x M x D) invertible generative model samples
+            Z_INV (tf.tensor): (1 x M x D) inverted samples
+
+        Returns:
+            I (tf.tensor): (D x D)
+
+    """    
+
+    d2ldw2 = tf.hessians(log_q_z, W)[0]
+    _d2ldw2 = tf.expand_dims(tf.expand_dims(d2ldw2[0,0,:,0,0,:], 2), 3)
+
+    # Break up Z_INV into individual dimensions
+    Z_INVs = tf.unstack(Z_INV, num=1, axis=0)
+    Z_INVs = tf.unstack(Z_INVs[0], num=1, axis=0)
+    Z_INVs = tf.unstack(Z_INVs[0], axis=0)
+
+    D = len(Z_INVs)
+    Z_INV_grads = []
+    for i in range(D):
+        grads_i = [Z_INVs[i], 
+                   tf.gradients(Z_INVs[i], Z)[0][0,:,:], 
+                   tf.hessians(Z_INVs[i], Z)[0][0,0,:,0,0,:]]
+        Z_INV_grads.append(grads_i)
+        print(i, grads_i[1].shape)
+
+    d2wdz2 = []
+    for i in range(D):
+        d2widz2 = []
+        for j in range(D):
+            d2wijdz2 = Z_INV_grads[i][0]*Z_INV_grads[j][2] + \
+                     2*tf.matmul(tf.transpose(Z_INV_grads[i][1]), Z_INV_grads[j][1]) + \
+                       Z_INV_grads[i][2]*Z_INV_grads[j][0]
+            print(i, j, d2wijdz2.shape)
+            d2widz2.append(d2wijdz2)
+        d2wdz2.append(tf.stack(d2widz2, 0))
+    d2wdz2 = tf.stack(d2wdz2, 0)
+
+    d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * d2wdz2, 0), 0)
+
+    return d2ldz2
+
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
