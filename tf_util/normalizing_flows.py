@@ -605,6 +605,7 @@ class IntervalFlow(NormFlow):
                 value of the determinant of the jacobian of the mappings.
     
         """
+        eps = 1e-10
         z = self.inputs
 
         m = np.expand_dims(np.expand_dims((self.b - self.a) / 2.0, 0), 0)
