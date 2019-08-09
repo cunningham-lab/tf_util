@@ -371,53 +371,6 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
     """    
 
     d2ldw2 = tf.hessians(log_q_z, W)[0]
-
-    # Break up Z_INV into individual dimensions
-    Z_INVs = tf.unstack(Z_INV, num=1, axis=0)
-    Z_INVs = tf.unstack(Z_INVs[0], num=1, axis=0)
-    Z_INVs = tf.unstack(Z_INVs[0], axis=0)
-
-    D = len(Z_INVs)
-    dZINV2dZ2 = []
-    for i in range(D):
-        dZINVidZ2 = []
-        for j in range(D):
-            hess_ij = tf.hessians(Z_INVs[i]*Z_INVs[j], Z)[0]
-            dZINVidZ2.append(hess_ij)
-        dZINV2dZ2.append(tf.stack(dZINVidZ2, axis=0))
-    dZINV2dZ2 = tf.stack(dZINV2dZ2, axis=0)
-
-    _d2ldw2 = tf.expand_dims(tf.expand_dims(d2ldw2[0,0,:,0,0,:], 2), 3)
-    _dZINV2dZ2 = dZINV2dZ2[:,:,0,0,:,0,0,:]
-
-    d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * _dZINV2dZ2, 0), 0)
-
-    return d2ldz2
-
-def dgm_hessian_fast(log_q_z, W, Z, Z_INV):
-    """Computes the Fisher information matrix for invertible generative models.
-
-       This function leverages auto-grad feature of tensorflow. The tf.gradients
-       and tf.hessians functions sum the gradients across all input tensor elements,
-       making it cumbersome to run these fisher information matrix calculations in 
-       batch across Z.  W should only ever be supplied with M=1 sample at a time.
-
-       This second derivative versiom only works under certain regularity conditions.
-       
-       TODO: Can I make this a batched computation?
-
-        Args:
-            log_q_z (tf.tensor): (1 x M) log probability of samples Z
-            W (tf.tensor): (1 x M x D) base distribution samples
-            Z (tf.tensor): (1 x M x D) invertible generative model samples
-            Z_INV (tf.tensor): (1 x M x D) inverted samples
-
-        Returns:
-            I (tf.tensor): (D x D)
-
-    """    
-
-    d2ldw2 = tf.hessians(log_q_z, W)[0]
     _d2ldw2 = tf.expand_dims(tf.expand_dims(d2ldw2[0,0,:,0,0,:], 2), 3)
 
     # Break up Z_INV into individual dimensions
@@ -432,7 +385,6 @@ def dgm_hessian_fast(log_q_z, W, Z, Z_INV):
                    tf.gradients(Z_INVs[i], Z)[0][0,:,:], 
                    tf.hessians(Z_INVs[i], Z)[0][0,0,:,0,0,:]]
         Z_INV_grads.append(grads_i)
-        print(i, grads_i[1].shape)
 
     d2wdz2 = []
     for i in range(D):
@@ -441,7 +393,6 @@ def dgm_hessian_fast(log_q_z, W, Z, Z_INV):
             d2wijdz2 = Z_INV_grads[i][0]*Z_INV_grads[j][2] + \
                      2*tf.matmul(tf.transpose(Z_INV_grads[i][1]), Z_INV_grads[j][1]) + \
                        Z_INV_grads[i][2]*Z_INV_grads[j][0]
-            print(i, j, d2wijdz2.shape)
             d2widz2.append(d2wijdz2)
         d2wdz2.append(tf.stack(d2widz2, 0))
     d2wdz2 = tf.stack(d2wdz2, 0)
