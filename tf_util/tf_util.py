@@ -19,6 +19,7 @@ import os, time
 import scipy
 from tf_util.normalizing_flows import (
     PlanarFlow,
+    PermutationFlow,
     AffineFlow,
     ShiftFlow,
     ElemMultFlow,
@@ -78,7 +79,11 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
     connect_params = theta is not None
 
     if (initdir is not None) and  connect_params:
-        print('Usage error: An initialization directory provided when connecting a parameter network (connect_params==True).  Either initdir must be None or connect params must be False.')
+        err_msg = """Usage error: An initialization directory provided when 
+               connecting a parameter network (connect_params==True).  
+               Either initdir must be None or connect params must be 
+               False."""
+        print(err_msg)
         exit()
 
     D = arch_dict["D"]
@@ -99,25 +104,37 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
 
         flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
-            with tf.variable_scope("Layer%d" % (i+1)):
                 if (connect_params):
                     params = theta[ind]
                 else:
+                    # permutation for real nvp repeat
+                    if (flow_class == RealNVP and i > 0):
+                        perm_inds = inits_by_layer[ind]
+                        perm_layer = PermutationFlow(perm_inds[0], Z)
+                        ind += 1
+
+                with tf.variable_scope("Layer%d" % (ind+1)):
                     params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
 
-                if (flow_class in [PlanarFlow, AffineFlow]):
-                    flow_layer = flow_class(params, Z)
-                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                elif (flow_class == RealNVP):
-                    real_nvp_arch = arch_dict['real_nvp_arch']
-                    num_masks = real_nvp_arch['num_masks']
-                    real_nvp_layers = real_nvp_arch['nlayers']
-                    upl = real_nvp_arch['upl']
-                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
-                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                else:
-                    raise NotImplementedError()
-                sum_log_det_jacobians += log_det_jacobian
+                    if (flow_class in [PlanarFlow, AffineFlow]):
+                        flow_layer = flow_class(params, Z)
+                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    elif (flow_class == RealNVP):
+                        # permutation for real nvp repeat
+                        if (i > 0):
+                            Z, log_det_jacobian = perm_layer.forward_and_jacobian()
+                            flow_layers.append(perm_layer)
+                            sum_log_det_jacobians += log_det_jacobian
+
+                        real_nvp_arch = arch_dict['real_nvp_arch']
+                        num_masks = real_nvp_arch['num_masks']
+                        real_nvp_layers = real_nvp_arch['nlayers']
+                        upl = real_nvp_arch['upl']
+                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                    else:
+                        raise NotImplementedError()
+                    sum_log_det_jacobians += log_det_jacobian
                 flow_layers.append(flow_layer)
                 ind += 1
 
@@ -558,6 +575,16 @@ def load_nf_init(initdirs, arch_dict):
             dims_i = [u_init.shape, w_init.shape, b_init.shape]
 
         elif arch_dict["flow_type"] == "RealNVP":
+            if (i > 0):
+                perm_init_i = []
+                print('keys')
+                print(thetas[k].keys())
+                for k in range(num_initdirs):
+                    perm_init_i.append(thetas[k]["%s/Layer%d/perm_inds" % (scope, layer_ind)])
+                perm_dims_i = num_initdirs*[perm_init_i[0].shape[0]]
+                inits_by_layer.append(perm_init_i)
+                dims_by_layer.append(perm_dims_i)
+                layer_ind += 1
             inits = []
             for k in range(num_initdirs):
                 inits.append(thetas[k]["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)])
