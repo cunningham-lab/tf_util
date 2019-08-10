@@ -66,6 +66,8 @@ def get_num_flow_params(flow_class, D, opt_params={}):
         return 2
     elif flow_class == PlanarFlow:
         return 2 * D + 1
+    elif flow_class == PermutationFlow:
+        return 0
     elif flow_class == RadialFlow:
         return D + 2
     elif flow_class == ShiftFlow:
@@ -131,6 +133,8 @@ def get_flow_out_dim(flow_class, dim):
     elif flow_class == IntervalFlow:
         return dim
     elif flow_class == PlanarFlow:
+        return dim
+    elif flow_class == PermutationFlow:
         return dim
     elif flow_class == RadialFlow:
         return dim
@@ -700,6 +704,63 @@ class PlanarFlow(NormFlow):
         f_z = z + tf.matmul(h, tf.expand_dims(self.u, 1))  # [K,n,D]
 
         return f_z, log_det_jacobian
+
+class PermutationFlow(NormFlow):
+    """Radial flow layer.
+
+    f(z) = z + beta h(alpha, r)(z-z0)
+    log_det_jac = [1+betah(alpha,r)]^(d-1) [1+betah(alpha,r) + betah'(alpha,r)r]
+
+    # Attributes
+        self.inds (list): List of indices of permutation.
+        self.rev_inds (list): List of indices for inverting permutation.
+
+    """
+
+    def __init__(self, params, inputs):
+        super().__init__(params, inputs)
+        self.name = "PermutationFlow"
+        self.inds = params
+        self.D = len(self.inds)
+        self.rev_inds = []
+        for i in range(self.D):
+            self.rev_inds.append(np.where(self.inds==i)[0][0])
+        self.rev_inds = np.array(self.rev_inds)
+
+    def forward_and_jacobian(self,):
+        """Perform the flow operation and compute the log-abs-det-jac.
+
+        # Returns 
+            f_z (tf.tensor): [K, batch_size, self.dim] Result of operation. 
+            log_det_jacobian (tf.tensor): [K, batch_size] Log absolute
+                value of the determinant of the jacobian of the mappings.
+    
+        """
+        z = self.inputs
+        zs = tf.unstack(z, num=self.D, axis=2)
+        z_outs = []
+        for i in range(self.D):
+            z_outs.append(zs[self.inds[i]])
+        z_out = tf.stack(z_outs, axis=2)
+        log_det_jac = tf.zeros_like(z[:,:,0])
+        return z_out, log_det_jac
+
+    def inverse(self, z):
+        """Invert sample z to random variable w.
+
+        # Arguments
+            z (tf.tensor): [K, self.num_params] Tensor containing
+                                     K parameterizations of the layer.
+        # Returns
+            f_inv_z (tf.tensor): [K, batch_size, self.dim] Result of operation
+
+        """
+        zs = tf.unstack(z, num=self.D, axis=2)
+        f_inv_zs = []
+        for i in range(self.D):
+            f_inv_zs.append(zs[self.rev_inds[i]])
+        f_inv_z = tf.stack(f_inv_zs, axis=2)
+        return f_inv_z
 
 
 class RadialFlow(NormFlow):

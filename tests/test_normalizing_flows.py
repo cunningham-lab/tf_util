@@ -8,6 +8,7 @@ from tf_util.normalizing_flows import (
     ExpFlow,
     IntervalFlow,
     PlanarFlow,
+    PermutationFlow,
     RadialFlow,
     ShiftFlow,
     SimplexBijectionFlow,
@@ -218,6 +219,10 @@ def planar_flow(z, params):
     log_det_jac = np.log(np.abs(1.0 + np.dot(u, phi)))
 
     return out, log_det_jac
+
+def permutation_flow(z, params):
+    z_out = z[params]
+    return z_out, 0.0
 
 
 # Radial flows
@@ -486,7 +491,10 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
     num_params = get_num_flow_params(flow_class, dim, opt_params)
     out_dim = get_flow_out_dim(flow_class, dim)
 
-    params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
+    if (flow_class == PermutationFlow):
+        params1 = np.random.choice(dim, dim, replace=False)
+    else:
+        params1 = tf.placeholder(dtype=DTYPE, shape=(None, num_params))
     inputs1 = tf.placeholder(dtype=DTYPE, shape=(None, None, dim))
 
     if (flow_class == RealNVP):
@@ -502,7 +510,10 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
     out_true = np.zeros((K, n, out_dim))
     log_det_jac_true = np.zeros((K, n))
     for k in range(K):
-        _params_k = _params[k, :]
+        if (flow_class == PermutationFlow):
+            _params_k = params1
+        else:
+            _params_k = _params[k, :]
         for j in range(n):
             if (flow_class == RealNVP):
                 out_true[k, j, :], log_det_jac_true[k, j] = true_flow(
@@ -513,7 +524,10 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
                     _inputs[k, j, :], _params_k
                 )
 
-    feed_dict = {params1: _params, inputs1: _inputs}
+    if (flow_class == PermutationFlow):
+        feed_dict = {inputs1: _inputs}
+    else:
+        feed_dict = {params1: _params, inputs1: _inputs}
     with tf.Session() as sess:
         _out1, _log_det_jac1 = sess.run([out1, log_det_jac1], feed_dict)
 
@@ -531,7 +545,7 @@ def eval_flow_at_dim(flow_class, true_flow, dim, K, n):
                 assert -alpha[k, 0] <= beta[k, 0]
 
         # Should check known inverse
-        if flow1.name in ["RealNVP", "SoftPlusFlow"]:
+        if flow1.name in ["RealNVP", "SoftPlusFlow", "PermutationFlow"]:
             print('testing inverse', flow1.name)
             f_inv_z = flow1.inverse(out1)
             _f_inv_z = sess.run(f_inv_z, feed_dict)
@@ -817,6 +831,18 @@ def test_planar_flows():
     eval_flow_at_dim(PlanarFlow, planar_flow, 1000, K, n)
     return None
 
+def test_permutation_flows():
+    # num parameterizations
+    K = 20
+    # number of inputs tested per parameterization
+    n = 100
+
+    np.random.seed(0)
+    eval_flow_at_dim(PermutationFlow, permutation_flow, 2, K, n)
+    eval_flow_at_dim(PermutationFlow, permutation_flow, 4, K, n)
+    eval_flow_at_dim(PermutationFlow, permutation_flow, 20, K, n)
+    eval_flow_at_dim(PermutationFlow, permutation_flow, 100, K, n)
+    return None
 
 def test_radial_flows():
     # num parameterizations
@@ -999,6 +1025,7 @@ if __name__ == "__main__":
     test_exp_flows()
     test_interval_flows()
     test_planar_flows()
+    test_permutation_flows()
     test_radial_flows()
     test_shift_flows()
     test_simplex_bijection_flows()
