@@ -212,6 +212,11 @@ def get_density_network_inits(arch_dict):
     flow_type = get_flow_class(arch_dict["flow_type"])
     for i in range(arch_dict["repeats"]):
         if (flow_type == RealNVP):
+            if (i > 0):
+                # add random permutation layer
+                perm = np.random.choice(D, D, replace=False)
+                inits_by_layer.append(perm)
+                dims_by_layer.append([D])
             inits, dims = get_flow_param_inits(flow_type, D, arch_dict['real_nvp_arch'])
         else:
             inits, dims = get_flow_param_inits(flow_type, D)
@@ -531,6 +536,11 @@ class ElemMultFlow(NormFlow):
         z = tf.multiply(z, tf.expand_dims(self.a, 1))
         return z, log_det_jac
 
+    def inverse(self, z):
+        # TODO check if this needs to be made stable
+        z = tf.divide(z, tf.expand_dims(self.a, 1))
+        return z
+
 
 class ExpFlow(NormFlow):
     """Elementwise multiplication layer.
@@ -842,7 +852,7 @@ class ShiftFlow(NormFlow):
     
         """
         super().__init__(params, inputs)
-        self.name = "ElemMultFlow"
+        self.name = "ShiftFlow"
         self.b = params
 
     def forward_and_jacobian(self,):
@@ -863,6 +873,11 @@ class ShiftFlow(NormFlow):
         # compute output
         z = z + tf.expand_dims(self.b, 1)
         return z, log_det_jac
+
+    def inverse(self, z):
+        z = z - tf.expand_dims(self.b, 1)
+        return z
+
 
 
 class SimplexBijectionFlow(NormFlow):
