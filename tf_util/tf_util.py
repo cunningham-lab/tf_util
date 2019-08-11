@@ -130,7 +130,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
                         num_masks = real_nvp_arch['num_masks']
                         real_nvp_layers = real_nvp_arch['nlayers']
                         upl = real_nvp_arch['upl']
-                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl)
+                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl, batch_norm=True)
                         Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                     else:
                         raise NotImplementedError()

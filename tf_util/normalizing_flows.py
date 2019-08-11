@@ -215,7 +215,7 @@ def get_density_network_inits(arch_dict):
             if (i > 0):
                 # add random permutation layer
                 perm = np.random.choice(D, D, replace=False)
-                inits_by_layer.append(perm)
+                inits_by_layer.append([perm])
                 dims_by_layer.append([D])
             inits, dims = get_flow_param_inits(flow_type, D, arch_dict['real_nvp_arch'])
         else:
@@ -348,14 +348,16 @@ class NormFlow:
         """
         self.params = params
         self.inputs = inputs
-        if isinstance(inputs, tf.Tensor):
-            self.dim = inputs.shape[2]
-        else:
-            self.dim = 0
+
         if isinstance(params, tf.Tensor):
             self.num_params = self.params.shape[1]
         else:
             self.num_params = 0
+
+        if isinstance(inputs, tf.Tensor):
+            self.dim = inputs.shape[2]
+        else:
+            self.dim = 0
 
     def forward_and_jacobian(self,):
         """Perform the flow operation and compute the log-abs-det-jac.
@@ -731,7 +733,7 @@ class PermutationFlow(NormFlow):
         super().__init__(params, inputs)
         self.name = "PermutationFlow"
         self.inds = params
-        self.D = len(self.inds)
+        self.D = self.inds.shape[0]
         self.rev_inds = []
         for i in range(self.D):
             self.rev_inds.append(np.where(self.inds==i)[0][0])
@@ -1081,7 +1083,7 @@ class RealNVP(NormFlow):
 
     """
 
-    def __init__(self, params, inputs, num_masks, nlayers, upl):
+    def __init__(self, params, inputs, num_masks, nlayers, upl, batch_norm=True):
         """Real NVP constructor.
 
         # Arguments 
@@ -1097,6 +1099,7 @@ class RealNVP(NormFlow):
         self.upl = upl
         self.s_param_ind_by_mask = []
         self.t_param_ind_by_mask = []
+        self.batch_norm = batch_norm
 
         # get list of masks
         masks = get_real_nvp_mask_list(self.dim, self.num_masks)
@@ -1104,6 +1107,16 @@ class RealNVP(NormFlow):
         for i in range(self.num_masks):
             masks[i] = np.expand_dims(np.expand_dims(masks[i], 0), 0)
         self.masks = masks
+
+        if (batch_norm):
+            self.layer_means = []
+            self.layer_vars = []
+            self.mus = []
+            self.sigmas = []
+            self.scale_eps = 1e-2
+            for i in range(self.num_masks):
+                self.mus.append(tf.placeholder(tf.float64, (self.dim,)))
+                self.sigmas.append(tf.placeholder(tf.float64, (self.dim,)))
 
     def forward_and_jacobian(self,):
         """Perform the flow operation and compute the log-abs-det-jac.
@@ -1138,6 +1151,17 @@ class RealNVP(NormFlow):
             log_det_jac = tf.reduce_sum((1-mask_i)*s, 2)
             log_det_jacs.append(log_det_jac)
 
+            if (self.batch_norm):
+                mu_hat = tf.reduce_mean(z_i, [0,1])
+                self.layer_means.append(mu_hat)
+                _mu_hat = tf.expand_dims(tf.expand_dims(mu_hat, 0), 0)
+                self.layer_vars.append(tf.reduce_mean(tf.square(z_i-_mu_hat), [0,1]))
+                mu_i = tf.expand_dims(tf.expand_dims(self.mus[i], 0), 0)
+                sigma_i = tf.expand_dims(tf.expand_dims(self.sigmas[i], 0), 0)
+                z_i = tf.divide(z_i - mu_i, sigma_i + self.scale_eps)
+                log_det_jac = tf.reduce_sum(tf.log(1.0 / (self.sigmas[i] + self.scale_eps)))
+                log_det_jacs.append(log_det_jac)
+
         f_z = z_i
         log_det_jacobian = sum(log_det_jacs)
 
@@ -1161,6 +1185,9 @@ class RealNVP(NormFlow):
         z_i = z
         for i in range(self.num_masks-1, -1, -1):
             mask_i = self.masks[i]
+
+            if (self.batch_norm):
+                z_i = (z_i*(self.sigmas[i] + self.scale_eps)) + self.mus[i]
 
             s_param_ind = self.s_param_ind_by_mask[i]
             s, _ = nvp_neural_network_tf(z_i, self.params, mask_i, \
