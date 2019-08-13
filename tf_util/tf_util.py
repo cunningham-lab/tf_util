@@ -313,6 +313,53 @@ def mixture_density_network(G, W, arch_dict, support_mapping=None, initdirs=None
     #return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, mu, sigma, C
     return Z, sum_log_det_jacobians, log_base_density, flow_layers, alpha, C
 
+def load_dgm(sess, model_dir, ind):
+    new_saver = tf.train.import_meta_graph(model_dir + 'model-%d.meta' % ind);
+    modeldir_i = model_dir + 'model-%d' % ind
+    new_saver.restore(sess, modeldir_i);
+    collection_keys = tf.get_default_graph().get_all_collection_keys()
+    assert('W' in collection_keys)
+    assert('Z' in collection_keys)
+    assert('log_q_z' in collection_keys)
+
+    W = tf.get_collection('W')[0]
+    Z = tf.get_collection('Z')[0]
+    log_q_Z = tf.get_collection('log_q_z')[0]
+    ret_list = [W, Z, log_q_Z]
+    if ('Z_INV' in collection_keys):
+        Z_INV = tf.get_collection('Z_INV')[0]
+        ret_list.append(Z_INV)
+    num_batch_norms = sum(['batch_norm_mu' in x for x in collection_keys])
+    if (num_batch_norms > 0):
+        batch_norm_mus = []
+        batch_norm_sigmas = []
+        batch_norm_layer_means = []
+        batch_norm_layer_vars = []
+        for i in range(num_batch_norms):
+            batch_norm_mus.append(tf.get_collection('batch_norm_mu%d' % (i+1))[0])
+            batch_norm_sigmas.append(tf.get_collection('batch_norm_sigma%d' % (i+1))[0])
+            batch_norm_layer_means.append(tf.get_collection('batch_norm_layer_mean%d' % (i+1))[0])
+            batch_norm_layer_vars.append(tf.get_collection('batch_norm_layer_var%d' % (i+1))[0])
+        ret_list += [batch_norm_mus, batch_norm_sigmas, \
+                     batch_norm_layer_means, batch_norm_layer_vars]
+    return ret_list
+
+
+def init_batch_norms(sess, feed_dict, batch_norm_mus, batch_norm_sigmas, batch_norm_layer_means, batch_norm_layer_vars):
+    print('Initializing batch norm parameters.')
+    num_batch_norms = len(batch_norm_mus)
+    _batch_norm_mus = []
+    _batch_norm_sigmas = []
+    for j in range(num_batch_norms):
+        print('running up to layer', j)
+        _batch_norm_mus.append(sess.run(batch_norm_layer_means[j], feed_dict))
+        _batch_norm_sigmas.append(np.sqrt(sess.run(batch_norm_layer_vars[j], feed_dict)))
+        feed_dict.update({batch_norm_mus[j]:_batch_norm_mus[j]})
+        feed_dict.update({batch_norm_sigmas[j]:_batch_norm_sigmas[j]})
+    return _batch_norm_mus, _batch_norm_sigmas
+
+    
+
 def fisher_information_matrix(log_q_z, W, Z, Z_INV=None):
     """Computes the Fisher information matrix for invertible generative models.
 
