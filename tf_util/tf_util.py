@@ -463,7 +463,7 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
 
     d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * d2wdz2, 0), 0)
 
-    return d2ldz2
+    return d2ldw2, d2wdz2, d2ldz2
 
 
 def gumbel_softmax_trick(G, alpha, tau):
@@ -508,7 +508,7 @@ def get_array_str(a):
     return array_str
 
 
-def get_initdir(arch_dict, random_seed, init_type="gauss", mu=None, sigma=None, a=None, b=None):
+def get_initdir(arch_dict, random_seed, init_type="gauss", a=None, b=None):
     """Get the directory name for particular initialization parameterization.
 
     Gaussian initializations:
@@ -526,6 +526,8 @@ def get_initdir(arch_dict, random_seed, init_type="gauss", mu=None, sigma=None, 
     prefix = "data/inits/"
     D = arch_dict['D']
     archstring = get_archstring(arch_dict, init=True)
+    mu = arch_dict['mu_init']
+    sigma = arch_dict['sigma_init']
 
     if (init_type == "gauss"):
         if (mu is None):
