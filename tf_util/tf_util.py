@@ -463,7 +463,7 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
 
     d2ldz2 = tf.reduce_sum(tf.reduce_sum(_d2ldw2 * d2wdz2, 0), 0)
 
-    return d2ldw2, d2wdz2, d2ldz2
+    return d2ldz2
 
 
 def gumbel_softmax_trick(G, alpha, tau):
@@ -536,7 +536,13 @@ def get_initdir(arch_dict, random_seed, init_type="gauss", a=None, b=None):
             sigma = np.ones((D,))
 
         mu_str = 'mu=' + get_array_str(mu)
-        sigma_str = 'sigma=' + get_array_str(sigma)
+        if (len(sigma.shape) == 2):
+            print('behavior string uses diag')
+            sigma_str = 'sigma=' + get_array_str(np.diag(sigma))
+        else:
+            assert(len(sigma.shape) == 1)
+            sigma_str = 'sigma=' + get_array_str(sigma)
+
         initdir = prefix + archstring + '/%s_%s' % (mu_str, sigma_str)
         if (a is not None):
             if (b is not None):
