@@ -465,6 +465,58 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
 
     return d2ldz2
 
+def get_dgm_hessian(model_dir, ME_it, w0, tol=1e-2, system=None, tf_vars=None, feed_dict=None):
+    hess_fname = model_dir + '/hessian_model_%d.npz' % ME_it
+    if (os.path.exists(hess_fname)):
+        print('Hessian file already exists.')
+        hess_file = np.load(hess_fname)
+        # Check if w0 is close to previously computed Hessians
+        w0s = hess_file['w0s']
+        num_w0s = len(w0s)
+        found = False
+        for i in range(num_w0s):
+            diff_i = np.sqrt(np.sum(np.square(w0[0,0,:]-w0s[i])))
+            print(i, diff_i)
+            print(w0[0,0,:], w0s[i])
+            if (diff_i < tol):
+                tol = diff_i
+                found = True
+                hind = i
+
+        if found:
+            print('Found close Hessian evaluation')
+            print('Requested w0', w0[0,0])
+            w0 = hess_file['w0s'][hind]
+            print('Found w0', w0)
+            H = hess_file['Hs'][hind]
+            z0 = hess_file['z0s'][hind]
+            return H, w0, z0
+
+    if (system is None or tf_vars is None or feed_dict is None):
+        # TODO load all this stuff from scratch
+        raise NotImplementedError()
+
+    W, Z, Z_INV, log_q_Z, batch_norm_mus, batch_norm_sigmas, batch_norm_means, batch_norm_vars  = tf_vars
+    feed_dict.update({W:w0})
+    print('calculating Hess')
+    H = dgm_hessian(log_q_Z, W, Z, Z_INV)
+    print('executing hess')
+    _H = sess.run(H, feed_dict)
+    _log_q_z, z0 = sess.run([log_q_Z, Z], feed_dict)
+    print('done')
+
+    # Add Hessian to the file
+    if (os.path.exists(hess_fname)):
+        w0s = np.concatenate((hess_file['w0s'], np.array([w0[0,0,:]])), axis=0)
+        z0s = np.concatenate((hess_file['z0s'], np.array([z0[0,0,:]])), axis=0)
+        Hs = np.concatenate((hess_file['Hs'], np.array([H])), axis=0)
+    else:
+        w0s = np.array([w0[0,0,:]])
+        z0s = np.array([z0[0,0,:]])
+        Hs = np.array([_H])
+    np.savez(hess_fname, w0s=w0s, z0s=z0s, Hs=Hs)
+
+    return H, w0, z0
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
