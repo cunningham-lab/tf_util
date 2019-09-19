@@ -918,6 +918,7 @@ def test_tanh_flows():
     eval_flow_at_dim(TanhFlow, tanh_flow, 1000, K, n)
     return None
 
+"""
 def test_real_nvp():
     np.random.seed(0)
     # num parameterizations
@@ -927,6 +928,7 @@ def test_real_nvp():
     eval_flow_at_dim(RealNVP, real_nvp, 8, K, n)
     eval_flow_at_dim(RealNVP, real_nvp, 50, K, n)
     return None
+"""
 
 def test_get_real_nvp_mask():
     Ds = [8, 8, 8, 8, 8, 8, 8, 8, \
