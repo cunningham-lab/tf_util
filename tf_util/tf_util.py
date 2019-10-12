@@ -324,8 +324,9 @@ def load_dgm(sess, model_dir, ind):
 
     W = tf.get_collection('W')[0]
     Z = tf.get_collection('Z')[0]
+    Z_input = tf.get_collection('Z_input')[0]
     log_q_Z = tf.get_collection('log_q_z')[0]
-    ret_list = [W, Z, log_q_Z]
+    ret_list = [W, Z, Z_input, log_q_Z]
     if ('Z_INV' in collection_keys):
         Z_INV = tf.get_collection('Z_INV')[0]
         ret_list.append(Z_INV)
@@ -465,7 +466,7 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
 
     return d2ldz2
 
-def get_dgm_hessian(model_dir, ME_it, w0, tol=1e-2, system=None, tf_vars=None, feed_dict=None):
+def get_dgm_hessian(model_dir, ME_it, w0, tol=1e-2, system=None, tf_vars=None, feed_dict=None, sess=None):
     hess_fname = model_dir + '/hessian_model_%d.npz' % ME_it
     if (os.path.exists(hess_fname)):
         print('Hessian file already exists.')
@@ -501,7 +502,12 @@ def get_dgm_hessian(model_dir, ME_it, w0, tol=1e-2, system=None, tf_vars=None, f
     print('calculating Hess')
     H = dgm_hessian(log_q_Z, W, Z, Z_INV)
     print('executing hess')
-    _H = sess.run(H, feed_dict)
+    if (sess is not None):
+        _H = sess.run(H, feed_dict)
+    else:
+        with tf.Session() as sess:
+            _H = sess.run(H, feed_dict)
+            
     _log_q_z, z0 = sess.run([log_q_Z, Z], feed_dict)
     print('done')
 
@@ -509,14 +515,16 @@ def get_dgm_hessian(model_dir, ME_it, w0, tol=1e-2, system=None, tf_vars=None, f
     if (os.path.exists(hess_fname)):
         w0s = np.concatenate((hess_file['w0s'], np.array([w0[0,0,:]])), axis=0)
         z0s = np.concatenate((hess_file['z0s'], np.array([z0[0,0,:]])), axis=0)
-        Hs = np.concatenate((hess_file['Hs'], np.array([H])), axis=0)
+        print(hess_file['Hs'].shape)
+        print(_H.shape)
+        Hs = np.concatenate((hess_file['Hs'], np.array([_H])), axis=0)
     else:
         w0s = np.array([w0[0,0,:]])
         z0s = np.array([z0[0,0,:]])
         Hs = np.array([_H])
     np.savez(hess_fname, w0s=w0s, z0s=z0s, Hs=Hs)
 
-    return H, w0, z0
+    return _H, w0, z0
 
 def gumbel_softmax_trick(G, alpha, tau):
     """
