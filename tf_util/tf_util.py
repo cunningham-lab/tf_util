@@ -330,6 +330,9 @@ def load_dgm(sess, model_dir, ind):
     if ('Z_INV' in collection_keys):
         Z_INV = tf.get_collection('Z_INV')[0]
         ret_list.append(Z_INV)
+    if ('Z_input' in collection_keys):
+        Z_input = tf.get_collection('Z_input')[0]
+        ret_list.append(Z_input)
     num_batch_norms = sum(['batch_norm_mu' in x for x in collection_keys])
     if (num_batch_norms > 0):
         batch_norm_mus = []
