@@ -324,15 +324,18 @@ def load_dgm(sess, model_dir, ind):
 
     W = tf.get_collection('W')[0]
     Z = tf.get_collection('Z')[0]
-    Z_input = tf.get_collection('Z_input')[0]
     log_q_Z = tf.get_collection('log_q_z')[0]
-    ret_list = [W, Z, Z_input, log_q_Z]
+    ret_list = [W, Z, log_q_Z]
+    has_Z_inv = False
+    has_Z_input = False
     if ('Z_INV' in collection_keys):
         Z_INV = tf.get_collection('Z_INV')[0]
         ret_list.append(Z_INV)
+        has_Z_inv = True
     if ('Z_input' in collection_keys):
         Z_input = tf.get_collection('Z_input')[0]
         ret_list.append(Z_input)
+        has_Z_input = True
     num_batch_norms = sum(['batch_norm_mu' in x for x in collection_keys])
     if (num_batch_norms > 0):
         batch_norm_mus = []
@@ -346,7 +349,7 @@ def load_dgm(sess, model_dir, ind):
             batch_norm_layer_vars.append(tf.get_collection('batch_norm_layer_var%d' % (i+1))[0])
         ret_list += [batch_norm_mus, batch_norm_sigmas, \
                      batch_norm_layer_means, batch_norm_layer_vars]
-    return ret_list
+    return ret_list, has_Z_inv, has_Z_input
 
 
 def init_batch_norms(sess, feed_dict, batch_norm_mus, batch_norm_sigmas, batch_norm_layer_means, batch_norm_layer_vars):
