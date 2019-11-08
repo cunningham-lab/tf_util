@@ -418,29 +418,28 @@ def fisher_information_matrix(log_q_z, W, Z, Z_INV=None):
     return dldz_sq
 
 
-def dgm_hessian(log_q_z, W, Z, Z_INV):
+def dgm_hessian(log_q_z, W, Z_input, Z_INV):
     """Computes the Fisher information matrix for invertible generative models.
 
        This function leverages auto-grad feature of tensorflow. The tf.gradients
        and tf.hessians functions sum the gradients across all input tensor elements,
-       making it cumbersome to run these fisher information matrix calculations in 
+       making it cumbersome to run these fisher information matrix calculations in
        batch across Z.  W should only ever be supplied with M=1 sample at a time.
 
        This second derivative versiom only works under certain regularity conditions.
-       
+
        TODO: Can I make this a batched computation?
 
         Args:
             log_q_z (tf.tensor): (1 x M) log probability of samples Z
-            W (tf.tensor): (1 x M x D) base distribution samples
-            Z (tf.tensor): (1 x M x D) invertible generative model samples
+            W (tf.tensor): (1 x M x D) tf plaecholder for base distribution samples
+            Z_input (tf.tensor): (1 x M x D) tf placeholder for Z
             Z_INV (tf.tensor): (1 x M x D) inverted samples
 
         Returns:
             I (tf.tensor): (D x D)
 
-    """    
-
+    """
     d2ldw2 = tf.hessians(log_q_z, W)[0]
     _d2ldw2 = tf.expand_dims(tf.expand_dims(d2ldw2[0,0,:,0,0,:], 2), 3)
 
@@ -452,9 +451,9 @@ def dgm_hessian(log_q_z, W, Z, Z_INV):
     D = len(Z_INVs)
     Z_INV_grads = []
     for i in range(D):
-        grads_i = [Z_INVs[i], 
-                   tf.gradients(Z_INVs[i], Z)[0][0,:,:], 
-                   tf.hessians(Z_INVs[i], Z)[0][0,0,:,0,0,:]]
+        grads_i = [Z_INVs[i],
+                   tf.gradients(Z_INVs[i], Z_input)[0][0,:,:],
+                   tf.hessians(Z_INVs[i], Z_input)[0][0,0,:,0,0,:]]
         Z_INV_grads.append(grads_i)
 
     d2wdz2 = []
