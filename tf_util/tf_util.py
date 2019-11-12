@@ -592,21 +592,17 @@ def get_initdir(arch_dict, random_seed, init_type="gauss", a=None, b=None):
     D = arch_dict['D']
     archstring = get_archstring(arch_dict, init=True)
     mu = arch_dict['mu_init']
-    sigma = arch_dict['sigma_init']
+    Sigma = arch_dict['Sigma_init']
 
     if (init_type == "gauss"):
         if (mu is None):
             mu = np.zeros((D,))
-        if (sigma is None):
-            sigma = np.ones((D,))
+        if (Sigma is None):
+            Sigma = np.eye(D)
 
         mu_str = 'mu=' + get_array_str(mu)
-        if (len(sigma.shape) == 2):
-            print('behavior string uses diag')
-            sigma_str = 'sigma=' + get_array_str(np.diag(sigma))
-        else:
-            assert(len(sigma.shape) == 1)
-            sigma_str = 'sigma=' + get_array_str(sigma)
+        print('behavior string uses diag')
+        sigma_str = 'Sigma_diag=' + get_array_str(np.diag(Sigma))
 
         initdir = prefix + archstring + '/%s_%s' % (mu_str, sigma_str)
         if (a is not None):
@@ -1264,10 +1260,10 @@ def get_archstring(arch_dict, init=False):
 
     if ("sigma_init" in arch_dict.keys()):
         sigma_init = arch_dict["sigma_init"]
-        if (len(sigma_init.shape) == 2):
-            arch_str += '_sigma=%.1f' % arch_dict["sigma_init"][0,0]
-        else:
-            arch_str += '_sigma=%.1f' % arch_dict["sigma_init"][0]
+        #if (type(sigma_init) == np.ndarray):
+        #    arch_str += '_iso_std=%.1f' % sigma_init[0]
+        #else:
+        arch_str += '_iso_std=%.1f' % sigma_init
 
     return arch_str
 
