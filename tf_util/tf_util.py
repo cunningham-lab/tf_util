@@ -1262,6 +1262,13 @@ def get_archstring(arch_dict, init=False):
     if arch_dict["post_affine"]:
         arch_str += "_M_A"
 
+    if ("sigma_init" in arch_dict.keys()):
+        sigma_init = arch_dict["sigma_init"]
+        if (len(sigma_init.shape) == 2):
+            arch_str += '_sigma=%.1f' % arch_dict["sigma_init"][0,0]
+        else:
+            arch_str += '_sigma=%.1f' % arch_dict["sigma_init"][0]
+
     return arch_str
 
 def get_flow_type_string(arch_dict):
