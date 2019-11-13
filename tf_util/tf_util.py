@@ -37,6 +37,7 @@ def init_layer_params(inits, dims, layer_ind):
     for j in range(num_inits):
         varname_j = "theta_%d_%d" % (layer_ind, j + 1)
         init_j = inits[j]
+        print('j', j, varname_j)
         if isinstance(init_j, tf.Tensor):
             var_j = tf.get_variable(
                 varname_j, dtype=DTYPE, initializer=init_j
@@ -70,12 +71,11 @@ def init_mixture_layer_params(inits, dims, layer_ind, C):
             )
         params.append(var_j)
     params = tf.concat(params, 1)
-    print(C.shape, params.shape)
     params = tf.matmul(C, params)
     return params
 
 
-def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None):
+def density_network(W, arch_dict, support_mapping=None, initdir=None, paramfname=None, theta=None):
     connect_params = theta is not None
 
     if (initdir is not None) and  connect_params:
@@ -88,11 +88,15 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
 
     D = arch_dict["D"]
     if (not connect_params):
-        if initdir is None:
-            inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
-        else:
+        if initdir is not None:
             inits_by_layer, dims_by_layer = load_nf_init([initdir], arch_dict)
             print("Loaded optimized initialization.")
+        elif paramfname is not None:
+            inits_by_layer, dims_by_layer = load_nf_params(paramfname, arch_dict)
+            print("Loaded params from optimization.")
+        else:
+            inits_by_layer, dims_by_layer = get_density_network_inits(arch_dict)
+            print('Initializing randomly.')
 
     # declare layer parameters with initializations
     params = []
@@ -104,39 +108,42 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
 
         flow_class = get_flow_class(arch_dict["flow_type"])
         for i in range(arch_dict["repeats"]):
-                if (connect_params):
-                    params = theta[ind]
-                else:
+            if (connect_params):
+                params = theta[ind]
+            else:
+                # permutation for real nvp repeat
+                if (flow_class == RealNVP and i > 0):
+                    perm_inds = inits_by_layer[ind]
+                    perm_layer = PermutationFlow(perm_inds[0], Z)
+                    ind += 1
+
+            with tf.variable_scope("Layer%d" % (ind+1)):
+                print(ind, inits_by_layer[ind], dims_by_layer[ind])
+                params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                print('params', params)
+
+                if (flow_class in [PlanarFlow, AffineFlow]):
+                    flow_layer = flow_class(params, Z)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                elif (flow_class == RealNVP):
                     # permutation for real nvp repeat
-                    if (flow_class == RealNVP and i > 0):
-                        perm_inds = inits_by_layer[ind]
-                        perm_layer = PermutationFlow(perm_inds[0], Z)
-                        ind += 1
+                    if (i > 0):
+                        Z, log_det_jacobian = perm_layer.forward_and_jacobian()
+                        flow_layers.append(perm_layer)
+                        sum_log_det_jacobians += log_det_jacobian
 
-                with tf.variable_scope("Layer%d" % (ind+1)):
-                    params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
-
-                    if (flow_class in [PlanarFlow, AffineFlow]):
-                        flow_layer = flow_class(params, Z)
-                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    elif (flow_class == RealNVP):
-                        # permutation for real nvp repeat
-                        if (i > 0):
-                            Z, log_det_jacobian = perm_layer.forward_and_jacobian()
-                            flow_layers.append(perm_layer)
-                            sum_log_det_jacobians += log_det_jacobian
-
-                        real_nvp_arch = arch_dict['real_nvp_arch']
-                        num_masks = real_nvp_arch['num_masks']
-                        real_nvp_layers = real_nvp_arch['nlayers']
-                        upl = real_nvp_arch['upl']
-                        flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl, batch_norm=True)
-                        Z, log_det_jacobian = flow_layer.forward_and_jacobian()
-                    else:
-                        raise NotImplementedError()
-                    sum_log_det_jacobians += log_det_jacobian
-                flow_layers.append(flow_layer)
-                ind += 1
+                    real_nvp_arch = arch_dict['real_nvp_arch']
+                    num_masks = real_nvp_arch['num_masks']
+                    real_nvp_layers = real_nvp_arch['nlayers']
+                    upl = real_nvp_arch['upl']
+                    print(i, 'Z', Z)
+                    flow_layer = flow_class(params, Z, num_masks, real_nvp_layers, upl, batch_norm=True)
+                    Z, log_det_jacobian = flow_layer.forward_and_jacobian()
+                else:
+                    raise NotImplementedError()
+                sum_log_det_jacobians += log_det_jacobian
+            flow_layers.append(flow_layer)
+            ind += 1
 
         if arch_dict["post_affine"]:
             with tf.variable_scope("PostMultLayer"):
@@ -144,6 +151,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
                     params = theta[ind]
                 else:
                     params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                print('post mult params', params)
                 flow_layer = ElemMultFlow(params, Z)
                 Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
@@ -155,6 +163,7 @@ def density_network(W, arch_dict, support_mapping=None, initdir=None, theta=None
                     params = theta[ind]
                 else:
                     params = init_layer_params(inits_by_layer[ind], dims_by_layer[ind], ind+1)
+                print('post shift params', params)
                 flow_layer = ShiftFlow(params, Z)
                 Z, log_det_jacobian = flow_layer.forward_and_jacobian()
                 sum_log_det_jacobians += log_det_jacobian
@@ -656,6 +665,68 @@ def check_init(initdir):
     else:
         os.makedirs(initdir)
     return check_passed
+
+
+def load_nf_params(paramfname, arch_dict):
+    scope = "DensityNetwork"
+    thetas = []
+    npzfile = np.load(paramfname, allow_pickle=True)
+    theta = npzfile["theta"][()]
+
+    inits_by_layer = []
+    dims_by_layer = []
+    layer_ind = 1
+
+    for i in range(arch_dict["repeats"]):
+        if arch_dict["flow_type"] == "PlanarFlow":
+            u_inits = []
+            w_inits = []
+            b_inits = []
+            for k in range(num_initdirs):
+                u_inits.append(theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)])
+                w_inits.append(theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 2)])
+                b_inits.append(theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 3)])
+            u_init = np.concatenate(u_inits, axis=0)
+            w_init = np.concatenate(w_inits, axis=0)
+            b_init = np.concatenate(b_inits, axis=0)
+
+            init_i = [tf.constant(u_init), tf.constant(w_init), tf.constant(b_init)]
+            dims_i = [u_init.shape, w_init.shape, b_init.shape]
+
+        elif arch_dict["flow_type"] == "RealNVP":
+            if (i > 0):
+                perm_init_i = []
+                print('keys')
+                print(theta.keys())
+                perm_init_i = [theta["%s/Layer%d/perm_inds" % (scope, layer_ind)]]
+                perm_dims_i = [perm_init_i[0].shape[0]]
+                inits_by_layer.append(perm_init_i)
+                dims_by_layer.append(perm_dims_i)
+                layer_ind += 1
+            init = theta["%s/Layer%d/theta_%d_%d:0" % (scope, layer_ind, layer_ind, 1)]
+            init_i = [tf.constant(init)]
+            dims_i = [init.shape]
+        else:
+            raise NotImplementedError
+
+        inits_by_layer.append(init_i)
+        dims_by_layer.append(dims_i)
+        layer_ind += 1
+
+    if arch_dict["post_affine"]:
+        a_init = theta["%s/PostMultLayer/theta_%d_1:0" % (scope, layer_ind)]
+        inits_by_layer.append([tf.constant(a_init)])
+        dims_by_layer.append([a_init.shape])
+
+        layer_ind += 1
+
+        b_init = theta["%s/PostShiftLayer/theta_%d_1:0" % (scope, layer_ind)]
+        inits_by_layer.append([tf.constant(b_init)])
+        dims_by_layer.append([b_init.shape])
+
+        layer_ind += 1
+
+    return inits_by_layer, dims_by_layer
 
 
 def load_nf_init(initdirs, arch_dict):
