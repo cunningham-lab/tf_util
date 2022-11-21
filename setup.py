@@ -8,5 +8,5 @@ setup(name='tf_util',
       author='Sean Bittner',
       author_email='srb2201@columbia.edu',
       packages=['tf_util'],
-      install_requires=['tensorflow==1.13.1', 'numpy', 'scipy', ],
+      install_requires=['tensorflow==2.9.3', 'numpy', 'scipy', ],
      )
